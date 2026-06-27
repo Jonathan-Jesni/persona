@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persona — Local Character Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ----------------------------------------------------------------------- */
+/* Theme tokens (ported verbatim from CharacterChat.dc.html themes.{dark,light}) */
+/* ----------------------------------------------------------------------- */
+[data-theme="dark"]{
+  --bg:#0b0c10; --bg2:#0d0f15; --sidebar:#0c0d12; --surface:#14161d; --surface2:#181b24;
+  --surface3:#1f2330; --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.12);
+  --text:#e9eaf0; --text2:#a3a6b3; --text3:#686b78; --accent:#7c6af7; --accent2:#9d8dff;
+  --accentSoft:rgba(124,106,247,.16); --track:rgba(255,255,255,.08);
+  --userBg:linear-gradient(135deg,#7c6af7,#6655ec); --aiBg:#181b24;
+  --online:#4ad6a0; --offline:#f0556a; --shadow:0 24px 70px rgba(0,0,0,.55);
+}
+[data-theme="light"]{
+  --bg:#f3efe6; --bg2:#efe9dd; --sidebar:#fbf8f2; --surface:#fffdf9; --surface2:#faf6ed;
+  --surface3:#f1ebde; --border:rgba(60,45,30,.10); --border2:rgba(60,45,30,.17);
+  --text:#221d29; --text2:#615b68; --text3:#9a929c; --accent:#7c6af7; --accent2:#6a58e8;
+  --accentSoft:rgba(124,106,247,.12); --track:rgba(60,45,30,.10);
+  --userBg:linear-gradient(135deg,#7c6af7,#6a58e8); --aiBg:#fffdf9;
+  --online:#1fae76; --offline:#e0455a; --shadow:0 24px 70px rgba(90,70,40,.16);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:'Hanken Grotesk',sans-serif;color:var(--text);background:var(--bg);overflow:hidden}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(124,106,247,.28);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(124,106,247,.45);background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+textarea{resize:none;outline:none;font-family:'Hanken Grotesk',sans-serif}
+textarea::placeholder,input::placeholder{color:var(--text3)}
+input{outline:none}
+button{font-family:inherit}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes haloPulse{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.14);opacity:.12}}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{0%{background-position:-280px 0}100%{background-position:280px 0}}
+
+.app{display:flex;height:100vh;width:100%;overflow:hidden;background:var(--bg)}
+.mono{font-family:'Space Mono',monospace}
+.grotesk{font-family:'Space Grotesk',sans-serif}
+
+/* ---------------- Sidebar ---------------- */
+.aside{width:280px;flex-shrink:0;display:flex;flex-direction:column;height:100%;background:var(--sidebar);border-right:1px solid var(--border)}
+.brandRow{display:flex;align-items:center;justify-content:space-between;padding:18px 16px 14px}
+.brandLeft{display:flex;align-items:center;gap:10px}
+.brandMark{width:32px;height:32px;border-radius:9px;background:linear-gradient(140deg,#7c6af7,#b07bff);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;box-shadow:0 4px 14px rgba(124,106,247,.45)}
+.brandName{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;letter-spacing:.01em}
+.brandSub{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);letter-spacing:.04em}
+.themeToggle{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:2px;gap:1px}
+.themeBtn{border:none;cursor:pointer;width:26px;height:24px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:center;transition:.15s;background:transparent;color:var(--text3)}
+.themeBtn.active{background:var(--accentSoft);color:var(--accent)}
+
+.services{display:flex;gap:8px;padding:0 16px 16px}
+.service{flex:1;display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:11px}
+.serviceDot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.serviceName{font-family:'Space Mono',monospace;font-size:10px;color:var(--text2)}
+.serviceSub{font-family:'Space Mono',monospace;font-size:8.5px;white-space:nowrap}
+
+.sectionLabel{display:flex;align-items:center;justify-content:space-between;padding:0 18px 8px}
+.sectionLabel .lbl{font-family:'Space Mono',monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+.sectionLabel .cnt{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--text3)}
+
+.charList{flex:1;overflow-y:auto;padding:2px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.charEmpty{font-family:'Space Mono',monospace;font-size:10px;color:var(--text3);line-height:1.6;padding:14px 8px;text-align:center}
+.card{display:flex;flex-direction:column;gap:9px;padding:12px;border-radius:14px;cursor:pointer;position:relative;transition:background .15s,border-color .15s;border:1px solid var(--border);background:var(--surface)}
+.card.active{border-color:var(--border2);background:var(--surface2);box-shadow:0 0 0 1px var(--accentSoft),0 10px 26px rgba(0,0,0,.22)}
+.card .activeBar{position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.cardTop{display:flex;align-items:center;gap:10px}
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:600}
+.cardAvatar{width:38px;height:38px;flex-shrink:0;font-size:15px}
+.cardNameRow{display:flex;align-items:center;gap:6px}
+.cardName{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cardTitle{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tags{display:flex;flex-wrap:wrap;gap:4px}
+.tag{font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.03em;text-transform:uppercase;padding:3px 6px;border-radius:6px;background:var(--accentSoft);color:var(--accent2)}
+.affRow{display:flex;align-items:center;gap:8px}
+.affTrack{flex:1;height:5px;border-radius:99px;background:var(--track);overflow:hidden}
+.affBar{height:100%;border-radius:99px}
+.affPct{font-family:'Space Mono',monospace;font-size:9.5px;color:var(--text2);min-width:30px;text-align:right}
+
+.newChar{flex-shrink:0;border-top:1px solid var(--border);padding:14px 14px 16px;background:var(--sidebar)}
+.newCharLabel{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:10px}
+.field{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;color:var(--text);font-size:12.5px;font-family:'Hanken Grotesk',sans-serif;margin-bottom:7px}
+textarea.field{height:52px;line-height:1.45}
+.visualWrap{position:relative;margin-bottom:10px}
+.visualWrap .star{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--accent);pointer-events:none}
+.visualWrap .field{padding-left:28px;margin-bottom:0}
+.createBtn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;box-shadow:0 6px 18px rgba(124,106,247,.4)}
+.createBtn:disabled{opacity:.5;cursor:default}
+
+/* ---------------- Main ---------------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+.header{flex-shrink:0;display:flex;align-items:center;gap:14px;padding:15px 24px;border-bottom:1px solid var(--border);background:linear-gradient(var(--bg2),var(--bg))}
+.headAvatarWrap{position:relative;width:46px;height:46px;flex-shrink:0}
+.headHalo{position:absolute;inset:-5px;border-radius:50%;border:1.5px solid var(--accent);animation:haloPulse 2.8s ease-in-out infinite}
+.headAvatar{position:absolute;inset:0;font-size:18px}
+.headInfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.headNameRow{display:flex;align-items:center;gap:9px}
+.headName{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px}
+.moodBadge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px 3px 7px;border-radius:99px;background:var(--surface2);border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10.5px;color:var(--text2)}
+.moodBadge .dot{width:6px;height:6px;border-radius:50%}
+.moodBadge .emoji{font-size:12px}
+.headSubRow{display:flex;align-items:center;gap:7px}
+.headTitle{font-family:'Space Mono',monospace;font-size:10px;color:var(--text3)}
+.headTagSep{color:var(--text3);font-size:9px}
+.headTags{display:flex;gap:5px}
+.headTag{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:.03em;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--accentSoft);color:var(--accent2)}
+.affBox{display:flex;align-items:center;gap:10px}
+.affBoxText{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+.affBoxText .l{font-family:'Space Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3)}
+.affBoxText .v{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:var(--accent2)}
+.affRing{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.affRingInner{width:36px;height:36px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:15px}
+.headBtns{display:flex;align-items:center;gap:6px;margin-left:4px}
+.hbtn{display:flex;align-items:center;gap:5px;height:34px;padding:0 11px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-family:'Space Grotesk',sans-serif;font-weight:500;font-size:12px;cursor:pointer}
+.hbtn .ic{font-size:12px}
+.hbtnIcon{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+
+.feed{flex:1;overflow-y:auto;padding:26px 28px 10px;display:flex;flex-direction:column;gap:18px;background:radial-gradient(1100px 440px at 76% -10%, var(--accentSoft), transparent 62%), var(--bg)}
+.feedEmpty{margin:auto;max-width:340px;text-align:center;color:var(--text3);display:flex;flex-direction:column;gap:10px;align-items:center}
+.feedEmpty .big{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:var(--text2)}
+.feedEmpty .small{font-family:'Space Mono',monospace;font-size:11px;line-height:1.6}
+
+.rowUser{display:flex;justify-content:flex-end;animation:msgIn .25s ease}
+.userCol{max-width:60%;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.userBubble{background:var(--userBg);color:#fff;padding:11px 15px;border-radius:16px 16px 4px 16px;font-size:14px;line-height:1.5;box-shadow:0 8px 22px rgba(124,106,247,.28);white-space:pre-wrap;word-break:break-word}
+.userMeta{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);padding-right:4px}
+
+.rowAi{display:flex;gap:11px;align-items:flex-start;animation:msgIn .25s ease}
+.aiAvatar{width:30px;height:30px;flex-shrink:0;margin-top:2px;font-size:12px}
+.aiCol{max-width:72%;display:flex;flex-direction:column;gap:8px}
+.aiBubble{background:var(--aiBg);color:var(--text);padding:11px 15px;border-radius:16px 16px 16px 4px;font-size:14px;line-height:1.56;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word}
+.aiBubble.error{border-color:var(--offline);color:var(--offline)}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--accent);margin-left:2px;border-radius:2px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
+.aiMeta{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);padding-left:4px}
+.aiMeta.gen{color:var(--accent2)}
+
+/* image cards */
+.imgCard{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface2);max-width:310px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.imgLoading{position:relative;height:236px;background:linear-gradient(100deg,var(--surface2) 30%,var(--accentSoft) 50%,var(--surface2) 70%);background-size:560px 100%;animation:shimmer 1.4s linear infinite;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--track);border-top-color:var(--accent);animation:spin .8s linear infinite}
+.imgLoading .gtxt{display:flex;flex-direction:column;align-items:center;gap:5px}
+.imgLoading .gtxt .a{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;color:var(--text)}
+.imgLoading .gtxt .b{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3)}
+.imgFootLoad{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-top:1px solid var(--border);gap:8px}
+.imgFootLoad .lab{font-family:'Space Mono',monospace;font-size:8.5px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imgPic{display:block;width:310px;height:auto;background:var(--surface2)}
+.imgFoot{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-top:1px solid var(--border);gap:8px}
+.imgChips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-family:'Space Mono',monospace;font-size:8.5px;color:var(--text3);background:var(--surface);border:1px solid var(--border);padding:3px 6px;border-radius:6px}
+.imgActs{display:flex;gap:4px;flex-shrink:0}
+.iconBtn{width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;text-decoration:none}
+
+/* composer */
+.composer{flex-shrink:0;padding:14px 24px 18px;border-top:1px solid var(--border);background:var(--bg)}
+.composerBox{display:flex;align-items:flex-end;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:16px;padding:8px 8px 8px 6px}
+.genBtn{width:38px;height:38px;flex-shrink:0;border-radius:11px;border:none;background:var(--accentSoft);color:var(--accent);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.composerInput{flex:1;background:transparent;border:none;color:var(--text);font-size:14px;line-height:1.5;padding:9px 4px;height:40px;max-height:120px}
+.sendBtn{width:40px;height:40px;flex-shrink:0;border-radius:12px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(124,106,247,.4)}
+.sendBtn:disabled{opacity:.5;cursor:default}
+.composerHint{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 4px}
+.composerHint .l{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3)}
+.composerHint .r{font-family:'Space Mono',monospace;font-size:9px;color:var(--accent2);display:flex;align-items:center;gap:5px}
+.composerHint .r .d{width:5px;height:5px;border-radius:50%;background:var(--accent2);box-shadow:0 0 7px var(--accent2)}
+.composerHint .r.off{color:var(--text3)}
+.composerHint .r.off .d{background:var(--text3);box-shadow:none}
+
+/* ---------------- Mobile drawer + backdrop ---------------- */
+.menuBtn{display:none;width:34px;height:34px;flex-shrink:0;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:16px;cursor:pointer;align-items:center;justify-content:center}
+.backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:35}
+
+@media (max-width:760px){
+  body{overflow:auto}
+  .app{height:100dvh}
+  .aside{position:fixed;top:0;left:0;bottom:0;width:84%;max-width:320px;z-index:40;
+    transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--shadow)}
+  .app.drawer-open .aside{transform:none}
+  .app.drawer-open .backdrop{display:block}
+  .menuBtn{display:flex}
+
+  .header{padding:11px 14px;gap:10px}
+  .headSubRow{display:none}
+  .headName{font-size:17px}
+  .headAvatarWrap{width:40px;height:40px}
+  .hbtn{padding:0 9px;font-size:0}        /* icon-only on mobile */
+  .hbtn .ic{font-size:15px}
+  .headBtns{gap:5px;margin-left:0}
+
+  .feed{padding:16px 14px 8px;gap:14px}
+  .userCol,.aiCol{max-width:85%}
+  .imgCard{max-width:100%}
+  .imgPic{width:100%}
+
+  .composer{padding:10px 12px 14px}
+  .composerHint .l{font-size:8px}
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="backdrop" id="backdrop"></div>
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="aside">
+    <div class="brandRow">
+      <div class="brandLeft">
+        <div class="brandMark grotesk">✦</div>
+        <div style="line-height:1.15">
+          <div class="brandName">Persona</div>
+          <div class="brandSub">local character studio</div>
+        </div>
+      </div>
+      <div class="themeToggle">
+        <button class="themeBtn" id="btnDark" title="Dark">☾</button>
+        <button class="themeBtn" id="btnLight" title="Light">☀</button>
+      </div>
+    </div>
+
+    <div class="services" id="services"></div>
+
+    <div class="sectionLabel">
+      <span class="lbl">Characters</span>
+      <span class="cnt" id="charCount">0</span>
+    </div>
+
+    <div class="charList" id="charList"></div>
+
+    <div class="newChar">
+      <div class="newCharLabel">New character</div>
+      <input class="field" id="ncName" placeholder="Character name">
+      <input class="field" id="ncTags" placeholder="Personality, comma separated">
+      <textarea class="field" id="ncDesc" placeholder="Backstory &amp; description — used as the system prompt"></textarea>
+      <div class="visualWrap">
+        <span class="star">✦</span>
+        <input class="field" id="ncStyle" placeholder="Visual style — e.g. cinematic, photoreal">
+      </div>
+      <button class="createBtn" id="createBtn">+ Create character</button>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main">
+    <div class="header" id="header"></div>
+    <div class="feed" id="feed"></div>
+    <div class="composer">
+      <div class="composerBox">
+        <button class="genBtn" id="genBtn" title="Generate image">✦</button>
+        <textarea class="composerInput" id="composerInput" placeholder="Message…"></textarea>
+        <button class="sendBtn" id="sendBtn">↑</button>
+      </div>
+      <div class="composerHint">
+        <span class="l">Enter to send · Shift+Enter for newline</span>
+        <span class="r" id="genStatus"><span class="d"></span>image generation on</span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+// ----------------------------------------------------------------------- //
+// Derived-visual helpers (backend has no avatar/mood/title fields)         //
+// ----------------------------------------------------------------------- //
+const AVATARS = [
+  { bg:'linear-gradient(140deg,#7c6af7,#b07bff 60%,#e6a8ff)', halo:'rgba(157,123,255,.55)' },
+  { bg:'linear-gradient(140deg,#3f8bd6,#3fb6c4)',             halo:'rgba(127,147,168,.45)' },
+  { bg:'linear-gradient(140deg,#ff9bb3,#ffce6b)',             halo:'rgba(245,177,76,.5)'   },
+  { bg:'linear-gradient(140deg,#5ad1a0,#3fb6c4)',             halo:'rgba(90,209,160,.5)'   },
+  { bg:'linear-gradient(140deg,#f7896a,#ffb86b)',             halo:'rgba(247,137,106,.5)'  },
+  { bg:'linear-gradient(140deg,#9d7bff,#6a58e8)',             halo:'rgba(157,123,255,.5)'  },
+];
+
+const MOOD_MAP = {
+  neutral: { emoji:'😐', color:'#7f93a8', label:'Neutral' },
+  happy:   { emoji:'😊', color:'#f5b14c', label:'Happy'   },
+  excited: { emoji:'✨', color:'#9d7bff', label:'Excited' },
+  sad:     { emoji:'😢', color:'#5b8fd6', label:'Sad'     },
+  annoyed: { emoji:'😒', color:'#e0455a', label:'Annoyed' },
+  flirty:  { emoji:'😏', color:'#ff7eb6', label:'Flirty'  },
+  serious: { emoji:'🧐', color:'#6a78a8', label:'Serious' },
+  playful: { emoji:'😋', color:'#ff9bb3', label:'Playful' },
+};
+const moodOf = m => MOOD_MAP[m] || MOOD_MAP.neutral;
+
+function hashStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
+const avatarFor = name => AVATARS[hashStr(name) % AVATARS.length];
+const initialOf = name => (name.trim()[0] || '?').toUpperCase();
+const titleCase = s => s ? s.charAt(0).toUpperCase()+s.slice(1) : s;
+const subtitleFor = c => (c.personality_tags && c.personality_tags[0]) ? titleCase(c.personality_tags[0]) : 'character';
+const pct = aff => Math.round((aff || 0) * 100);
+const escapeHtml = s => (s||'').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const nowTime = () => { const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+
+// Strip backend image markers from streamed text so they don't show as raw tokens.
+const IMG_MARKERS = /\[IMAGE:[^\]]*\]|\[GENERATED_IMAGE:[^\]]*\]|\*\[image unavailable\]\*/g;
+const cleanText = raw => (raw || '').replace(IMG_MARKERS, '').replace(/[ \t]{2,}/g,' ').trim();
+const hasImageTrigger = raw => /\[IMAGE:/.test(raw || '');
+
+const IMAGE_NUDGE = ' (share an image of this moment using an [IMAGE: vivid scene description] tag)';
+
+// ----------------------------------------------------------------------- //
+// State                                                                    //
+// ----------------------------------------------------------------------- //
+const state = {
+  theme: localStorage.getItem('persona-theme') || 'dark',
+  characters: {},          // name -> { name, description, personality_tags, emotion:{mood,affinity}, visual_style }
+  order: [],               // display order of names
+  activeName: null,
+  messagesByChar: {},      // name -> [ {role, text, time, image?, error?, streaming?} ]
+  health: { ollama:false, stable_diffusion:false },
+};
+
+let streamCtx = null;      // active stream references
+
+// ----------------------------------------------------------------------- //
+// DOM refs                                                                 //
+// ----------------------------------------------------------------------- //
+const $ = id => document.getElementById(id);
+const el = { app:$('app'), services:$('services'), charList:$('charList'), charCount:$('charCount'),
+  header:$('header'), feed:$('feed'), input:$('composerInput'), send:$('sendBtn'), gen:$('genBtn'),
+  genStatus:$('genStatus'), create:$('createBtn') };
+
+const activeChar = () => state.characters[state.activeName] || null;
+const activeMessages = () => state.messagesByChar[state.activeName] || [];
+
+// ----------------------------------------------------------------------- //
+// Theme                                                                    //
+// ----------------------------------------------------------------------- //
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme', state.theme);
+  $('btnDark').classList.toggle('active', state.theme==='dark');
+  $('btnLight').classList.toggle('active', state.theme==='light');
+}
+function setTheme(t){ state.theme=t; localStorage.setItem('persona-theme',t); applyTheme(); }
+
+// ----------------------------------------------------------------------- //
+// Render: services / health pills                                          //
+// ----------------------------------------------------------------------- //
+function renderServices(){
+  const defs = [
+    { name:'Ollama',   model:'llama3', up:state.health.ollama },
+    { name:'SD Forge', model:'sdxl',   up:state.health.stable_diffusion },
+  ];
+  el.services.innerHTML = defs.map(s => {
+    const col = s.up ? 'var(--online)' : 'var(--offline)';
+    const sub = s.model + (s.up ? ' · online' : ' · offline');
+    const subColor = s.up ? 'var(--text3)' : 'var(--offline)';
+    return `<div class="service">
+      <span class="serviceDot" style="background:${col};box-shadow:0 0 9px ${col}"></span>
+      <div style="line-height:1.2;min-width:0">
+        <div class="serviceName">${s.name}</div>
+        <div class="serviceSub" style="color:${subColor}">${sub}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const sdUp = state.health.stable_diffusion;
+  el.genStatus.className = 'r' + (sdUp ? '' : ' off');
+  el.genStatus.innerHTML = `<span class="d"></span>image generation ${sdUp ? 'on' : 'off'}`;
+}
+
+// ----------------------------------------------------------------------- //
+// Render: sidebar character cards                                          //
+// ----------------------------------------------------------------------- //
+function renderCharList(){
+  el.charCount.textContent = state.order.length;
+  if(!state.order.length){
+    el.charList.innerHTML = `<div class="charEmpty">No characters yet.<br>Create one below to begin.</div>`;
+    return;
+  }
+  el.charList.innerHTML = state.order.map(name => {
+    const c = state.characters[name];
+    const av = avatarFor(name);
+    const mood = moodOf(c.emotion.mood);
+    const active = name === state.activeName;
+    const affinity = pct(c.emotion.affinity);
+    const tags = (c.personality_tags||[]).slice(0,3).map(t=>`<span class="tag">${escapeHtml(t)}</span>`).join('');
+    return `<div class="card${active?' active':''}" data-name="${escapeHtml(name)}">
+      ${active?'<div class="activeBar"></div>':''}
+      <div class="cardTop">
+        <div class="avatar cardAvatar" style="background:${av.bg};box-shadow:0 0 16px ${av.halo}">${initialOf(name)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="cardNameRow">
+            <span class="cardName">${escapeHtml(name)}</span>
+            <span style="font-size:13px">${mood.emoji}</span>
+          </div>
+          <div class="cardTitle">${escapeHtml(subtitleFor(c))}</div>
+        </div>
+      </div>
+      <div class="tags">${tags}</div>
+      <div class="affRow">
+        <div class="affTrack"><div class="affBar" style="width:${affinity}%;background:linear-gradient(90deg,var(--accent),${mood.color})"></div></div>
+        <span class="affPct">${affinity}%</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.charList.querySelectorAll('.card').forEach(card => {
+    card.addEventListener('click', () => selectCharacter(card.dataset.name));
+  });
+}
+
+// ----------------------------------------------------------------------- //
+// Render: chat header                                                      //
+// ----------------------------------------------------------------------- //
+function renderHeader(){
+  const c = activeChar();
+  if(!c){
+    el.header.innerHTML = `<button class="menuBtn" id="menuBtn">☰</button>
+      <div class="headInfo"><span class="headName">No character selected</span>
+      <span class="headTitle">Create or pick a character to start chatting</span></div>`;
+    $('menuBtn').addEventListener('click', toggleDrawer);
+    el.input.disabled = el.send.disabled = el.gen.disabled = true;
+    el.input.placeholder = 'Select a character…';
+    return;
+  }
+  el.input.disabled = el.send.disabled = el.gen.disabled = false;
+  el.input.placeholder = `Message ${c.name}…`;
+
+  const av = avatarFor(c.name);
+  const mood = moodOf(c.emotion.mood);
+  const affinity = pct(c.emotion.affinity);
+  const tags = (c.personality_tags||[]).slice(0,3).map(t=>`<span class="headTag">${escapeHtml(t)}</span>`).join('');
+  el.header.innerHTML = `
+    <button class="menuBtn" id="menuBtn">☰</button>
+    <div class="headAvatarWrap">
+      <div class="headHalo" style="border-color:${mood.color}"></div>
+      <div class="avatar headAvatar" style="background:${av.bg};box-shadow:0 0 22px ${av.halo}">${initialOf(c.name)}</div>
+    </div>
+    <div class="headInfo">
+      <div class="headNameRow">
+        <span class="headName">${escapeHtml(c.name)}</span>
+        <span class="moodBadge">
+          <span class="dot" style="background:${mood.color};box-shadow:0 0 7px ${mood.color}"></span>
+          <span class="emoji">${mood.emoji}</span>${mood.label}
+        </span>
+      </div>
+      <div class="headSubRow">
+        <span class="headTitle">${escapeHtml(subtitleFor(c))}</span>
+        <span class="headTagSep">●</span>
+        <div class="headTags">${tags}</div>
+      </div>
+    </div>
+    <div class="affBox">
+      <div class="affBoxText"><span class="l">Affinity</span><span class="v">${affinity}%</span></div>
+      <div class="affRing" style="background:conic-gradient(var(--accent) ${affinity*3.6}deg, var(--track) 0)">
+        <div class="affRingInner">♥</div>
+      </div>
+    </div>
+    <div class="headBtns">
+      <button class="hbtn" id="clearMemBtn"><span class="ic">⌫</span>Clear Memory</button>
+      <button class="hbtn" id="resetBtn"><span class="ic">↺</span>Reset Session</button>
+      <button class="hbtnIcon">⋯</button>
+    </div>`;
+  $('menuBtn').addEventListener('click', toggleDrawer);
+  $('clearMemBtn').addEventListener('click', clearMemory);
+  $('resetBtn').addEventListener('click', resetSession);
+}
+
+// ----------------------------------------------------------------------- //
+// Mobile drawer                                                            //
+// ----------------------------------------------------------------------- //
+function toggleDrawer(){ el.app.classList.toggle('drawer-open'); }
+function closeDrawer(){ el.app.classList.remove('drawer-open'); }
+
+// ----------------------------------------------------------------------- //
+// Render: message feed                                                     //
+// ----------------------------------------------------------------------- //
+function buildImageCard(img){
+  // img: { loading, label, url }
+  if(img.loading){
+    return `<div class="imgCard">
+      <div class="imgLoading">
+        <div class="spinner"></div>
+        <div class="gtxt"><span class="a">Generating…</span><span class="b">SD Forge · ~768×768</span></div>
+      </div>
+      <div class="imgFootLoad"><span class="lab">"${escapeHtml(img.label||'')}"</span></div>
+    </div>`;
+  }
+  const modelLabel = 'SD Forge';
+  return `<div class="imgCard">
+    <img class="imgPic" src="${escapeHtml(img.url)}" alt="${escapeHtml(img.label||'generated image')}">
+    <div class="imgFoot">
+      <div class="imgChips">
+        <span class="chip">${modelLabel}</span>
+        <span class="chip">seed —</span>
+        <span class="chip">768 × 768</span>
+      </div>
+      <div class="imgActs">
+        <button class="iconBtn" data-regen="1" title="Regenerate">⟳</button>
+        <a class="iconBtn" href="${escapeHtml(img.url)}" download title="Download">↓</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderFeed(){
+  const c = activeChar();
+  const msgs = activeMessages();
+  if(!c){
+    el.feed.innerHTML = `<div class="feedEmpty"><span class="big">Welcome to Persona</span>
+      <span class="small">Create your first character in the sidebar to begin a conversation.</span></div>`;
+    return;
+  }
+  if(!msgs.length){
+    el.feed.innerHTML = `<div class="feedEmpty"><span class="big">Say hello to ${escapeHtml(c.name)}</span>
+      <span class="small">Send a message to start. Images appear when ${escapeHtml(c.name)} chooses to share a scene — or nudge one with ✦.</span></div>`;
+    return;
+  }
+  const av = avatarFor(c.name);
+  el.feed.innerHTML = msgs.map((m,i) => {
+    if(m.role === 'user'){
+      return `<div class="rowUser"><div class="userCol">
+        <div class="userBubble">${escapeHtml(m.text)}</div>
+        <span class="userMeta">${m.time||''}</span>
+      </div></div>`;
+    }
+    const metaTxt = m.streaming ? 'generating…' : (m.time||'');
+    const metaCls = m.streaming ? 'aiMeta gen' : 'aiMeta';
+    const cursor = m.streaming ? '<span class="cursor"></span>' : '';
+    const bubbleCls = m.error ? 'aiBubble error' : 'aiBubble';
+    const imgHtml = m.image ? buildImageCard(m.image) : '';
+    return `<div class="rowAi" data-idx="${i}">
+      <div class="avatar aiAvatar" style="background:${av.bg};box-shadow:0 0 14px ${av.halo}">${initialOf(c.name)}</div>
+      <div class="aiCol">
+        <div class="${bubbleCls}">${escapeHtml(m.text)}${cursor}</div>
+        ${imgHtml}
+        <span class="${metaCls}">${metaTxt}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // wire regenerate buttons
+  el.feed.querySelectorAll('[data-regen]').forEach(btn => {
+    btn.addEventListener('click', () => sendMessage('A new portrait of this scene' + IMAGE_NUDGE, true));
+  });
+  scrollFeed();
+}
+
+function scrollFeed(){ el.feed.scrollTop = el.feed.scrollHeight; }
+
+// ----------------------------------------------------------------------- //
+// API                                                                      //
+// ----------------------------------------------------------------------- //
+async function fetchHealth(){
+  try{
+    const r = await fetch('/health');
+    if(r.ok){ state.health = await r.json(); }
+  }catch(e){ state.health = { ollama:false, stable_diffusion:false }; }
+  renderServices();
+}
+
+async function fetchCharacters(keepActive){
+  try{
+    const r = await fetch('/characters');
+    const data = await r.json();
+    const names = [];
+    const map = {};
+    for(const c of (data.characters||[])){
+      names.push(c.name);
+      map[c.name] = {
+        name: c.name,
+        personality_tags: c.personality_tags || [],
+        emotion: c.emotion || { mood:'neutral', affinity:0.5 },
+      };
+      if(!state.messagesByChar[c.name]) state.messagesByChar[c.name] = [];
+    }
+    state.characters = map;
+    state.order = names;
+    if(!keepActive || !state.characters[state.activeName]){
+      state.activeName = names[0] || null;
+    }
+  }catch(e){
+    console.error('fetchCharacters failed', e);
+  }
+  renderCharList(); renderHeader(); renderFeed();
+}
+
+async function createCharacter(){
+  const name = $('ncName').value.trim();
+  const tags = $('ncTags').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const description = $('ncDesc').value.trim();
+  const visual_style = $('ncStyle').value.trim();
+  if(!name) return;
+  el.create.disabled = true;
+  try{
+    const r = await fetch('/characters', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, description, personality_tags:tags, visual_style })
+    });
+    if(!r.ok){ const e = await r.json().catch(()=>({})); alert('Create failed: '+(e.detail||r.status)); return; }
+    $('ncName').value=''; $('ncTags').value=''; $('ncDesc').value=''; $('ncStyle').value='';
+    state.messagesByChar[name] = state.messagesByChar[name] || [];
+    await fetchCharacters(true);
+    selectCharacter(name);
+  }catch(e){ alert('Create failed: '+e.message); }
+  finally{ el.create.disabled = false; }
+}
+
+async function clearMemory(){
+  const c = activeChar(); if(!c) return;
+  if(!confirm(`Clear all stored memories for ${c.name}?`)) return;
+  try{ await fetch(`/characters/${encodeURIComponent(c.name)}/memories`, { method:'DELETE' }); }
+  catch(e){ alert('Clear memory failed: '+e.message); }
+}
+
+async function resetSession(){
+  if(!confirm('Reset the entire session? This clears all characters and history.')) return;
+  try{
+    await fetch('/reset', { method:'POST' });
+    state.characters={}; state.order=[]; state.messagesByChar={}; state.activeName=null;
+    renderCharList(); renderHeader(); renderFeed();
+  }catch(e){ alert('Reset failed: '+e.message); }
+}
+
+function selectCharacter(name){
+  if(streamCtx) closeStream();
+  state.activeName = name;
+  el.input.value=''; autoGrow();
+  closeDrawer();
+  renderCharList(); renderHeader(); renderFeed();
+}
+
+// ----------------------------------------------------------------------- //
+// Streaming chat                                                           //
+// ----------------------------------------------------------------------- //
+function closeStream(){
+  if(streamCtx && streamCtx.es){ streamCtx.es.close(); }
+  streamCtx = null;
+}
+
+function sendMessage(forcedText, isNudge){
+  const c = activeChar(); if(!c) return;
+  if(streamCtx) return; // one stream at a time
+  const raw = (forcedText != null) ? forcedText : el.input.value.trim();
+  if(!raw) return;
+
+  const name = state.activeName;
+  const msgs = state.messagesByChar[name];
+  // clear any leftover streaming flags
+  msgs.forEach(m => m.streaming=false);
+
+  // show user message (hide the nudge instruction suffix for cleanliness)
+  const displayUser = isNudge ? raw.replace(IMAGE_NUDGE,'').trim() : raw;
+  msgs.push({ role:'user', text:displayUser, time:nowTime() });
+
+  const aiMsg = { role:'ai', text:'', time:nowTime(), streaming:true, raw:'' };
+  msgs.push(aiMsg);
+
+  if(forcedText == null){ el.input.value=''; autoGrow(); }
+  renderFeed();
+
+  const url = `/chat/stream?character_name=${encodeURIComponent(name)}&user_message=${encodeURIComponent(raw)}`;
+  const es = new EventSource(url);
+  streamCtx = { es, name, aiMsg };
+
+  es.onmessage = (ev) => {
+    let data; try{ data = JSON.parse(ev.data); }catch{ return; }
+
+    if(data.error){ finishWithError(aiMsg, data.error); return; }
+    switch(data.type){
+      case 'token':
+        aiMsg.raw += data.content || '';
+        aiMsg.text = cleanText(aiMsg.raw);
+        if(hasImageTrigger(aiMsg.raw) && !aiMsg.image){
+          aiMsg.image = { loading:true, label: imgLabelFrom(aiMsg.raw) };
+        }
+        updateStreamingDom();
+        break;
+      case 'image':
+        aiMsg.image = { loading:false, url:data.url, label:(aiMsg.image&&aiMsg.image.label)||'' };
+        renderFeed();
+        break;
+      case 'emotion':
+        if(data.data && state.characters[name]){
+          state.characters[name].emotion = data.data;
+          renderCharList();
+          if(name === state.activeName) renderHeader();
+        }
+        break;
+      case 'done':
+        aiMsg.streaming = false; aiMsg.time = nowTime();
+        if(aiMsg.image && aiMsg.image.loading){ aiMsg.image = null; } // trigger present but no image came back
+        closeStream(); renderFeed();
+        break;
+      case 'error':
+        finishWithError(aiMsg, data.content || 'stream error');
+        break;
+    }
+  };
+  es.onerror = () => {
+    if(aiMsg.streaming && !aiMsg.text){ finishWithError(aiMsg, 'Connection lost. Is the backend running?'); }
+    else { aiMsg.streaming=false; closeStream(); renderFeed(); }
+  };
+}
+
+function imgLabelFrom(raw){
+  const m = raw.match(/\[IMAGE:\s*([^\]]*)\]/);
+  return m ? m[1].trim() : 'a generated scene';
+}
+
+function finishWithError(aiMsg, msg){
+  aiMsg.streaming=false; aiMsg.error=true; aiMsg.image=null;
+  aiMsg.text = aiMsg.text || ('⚠ ' + msg);
+  closeStream(); renderFeed();
+}
+
+// Lightweight in-place update of the streaming bubble to avoid full re-render flicker.
+function updateStreamingDom(){
+  const idx = activeMessages().length - 1;
+  const row = el.feed.querySelector(`.rowAi[data-idx="${idx}"]`);
+  if(!row){ renderFeed(); return; }
+  const bubble = row.querySelector('.aiBubble');
+  const aiMsg = streamCtx.aiMsg;
+  bubble.innerHTML = escapeHtml(aiMsg.text) + '<span class="cursor"></span>';
+  // attach loading image card if it just appeared and isn't in DOM yet
+  if(aiMsg.image && aiMsg.image.loading && !row.querySelector('.imgCard')){
+    renderFeed(); return;
+  }
+  scrollFeed();
+}
+
+// ----------------------------------------------------------------------- //
+// Composer behaviour                                                       //
+// ----------------------------------------------------------------------- //
+function autoGrow(){
+  el.input.style.height='40px';
+  el.input.style.height = Math.min(el.input.scrollHeight,120)+'px';
+}
+
+// ----------------------------------------------------------------------- //
+// Wire events                                                              //
+// ----------------------------------------------------------------------- //
+$('backdrop').addEventListener('click', closeDrawer);
+$('btnDark').addEventListener('click', ()=>setTheme('dark'));
+$('btnLight').addEventListener('click', ()=>setTheme('light'));
+el.create.addEventListener('click', createCharacter);
+el.send.addEventListener('click', ()=>sendMessage());
+el.gen.addEventListener('click', ()=>{
+  const c = activeChar(); if(!c) return;
+  const base = el.input.value.trim() || 'this moment, in their world';
+  el.input.value='';
+  autoGrow();
+  sendMessage(base + IMAGE_NUDGE, true);
+});
+el.input.addEventListener('input', autoGrow);
+el.input.addEventListener('keydown', (e)=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+});
+
+// ----------------------------------------------------------------------- //
+// Boot                                                                     //
+// ----------------------------------------------------------------------- //
+applyTheme();
+renderServices();
+fetchHealth();
+fetchCharacters(false);
+setInterval(fetchHealth, 15000);
+
+})();
+</script>
+</body>
+</html>

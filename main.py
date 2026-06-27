@@ -1,0 +1,641 @@
+"""
+Character AI v2 — FastAPI Backend
+===================================
+Upgrades over v1:
+  - ChromaDB semantic memory per character (recalls relevant past exchanges)
+  - Emotion state engine (mood + affinity that evolve and shape system prompts)
+  - SSE streaming responses via /chat/stream
+  - Two-pass image pipeline: raw trigger → Ollama prompt-expansion → SD Forge
+  - SDXL-quality SD params (768x768, DPM++ 2M Karras, 30 steps)
+  - Multi-character group chat support
+"""
+
+import os
+import uuid
+import base64
+import socket
+import requests
+import re
+import json
+import logging
+import asyncio
+from pathlib import Path
+from typing import Optional, AsyncGenerator
+from contextlib import asynccontextmanager
+
+import chromadb
+import ollama
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "dolphin-llama3")       # Main chat model
+OLLAMA_EXPAND_MODEL = os.getenv("OLLAMA_EXPAND_MODEL", OLLAMA_MODEL)  # Prompt expander
+SD_URL = os.getenv("SD_URL", "http://127.0.0.1:7860")
+CHROMA_PATH = os.getenv("CHROMA_PATH", "./chroma_db")
+MEMORY_TOP_K = int(os.getenv("MEMORY_TOP_K", "4"))             # Memories to inject
+MAX_HISTORY = int(os.getenv("MAX_HISTORY", "30"))              # Rolling context window
+
+# ---------------------------------------------------------------------------
+# Global State
+# ---------------------------------------------------------------------------
+chat_session: dict = {
+    "history": [],       # Rolling conversation history (all characters)
+    "characters": {},    # name -> CharacterState
+}
+
+# ---------------------------------------------------------------------------
+# Pydantic Models
+# ---------------------------------------------------------------------------
+class CharacterPayload(BaseModel):
+    name: str
+    description: str
+    personality_tags: list[str] = []   # e.g. ["witty", "sarcastic", "warm"]
+    visual_style: str = ""             # SD style tokens for this character's images
+
+class ChatPayload(BaseModel):
+    character_name: str
+    user_message: str
+
+class GroupChatPayload(BaseModel):
+    character_names: list[str]
+    user_message: str
+
+class CharacterResponse(BaseModel):
+    character: str
+    text: str
+    image_urls: list[str]
+    emotion: dict                       # mood, affinity returned to frontend
+
+# ---------------------------------------------------------------------------
+# Emotion Engine
+# ---------------------------------------------------------------------------
+MOODS = ["neutral", "happy", "excited", "sad", "annoyed", "flirty", "serious", "playful"]
+
+class EmotionState:
+    """Tracks per-character mood and affinity toward the user."""
+    def __init__(self):
+        self.mood: str = "neutral"
+        self.affinity: float = 0.5          # 0.0 (cold) → 1.0 (devoted)
+        self.mood_intensity: float = 0.5    # how strongly the mood manifests
+
+    def update(self, user_message: str, ai_response: str):
+        """Heuristically shift state based on message content."""
+        msg_lower = user_message.lower()
+
+        # Affinity shifts
+        positive_signals = ["thank", "love", "amazing", "great", "please", "appreciate", "beautiful"]
+        negative_signals = ["hate", "stupid", "shut up", "boring", "bad", "worst"]
+
+        for word in positive_signals:
+            if word in msg_lower:
+                self.affinity = min(1.0, self.affinity + 0.03)
+        for word in negative_signals:
+            if word in msg_lower:
+                self.affinity = max(0.0, self.affinity - 0.05)
+
+        # Mood inference from response content
+        response_lower = ai_response.lower()
+        if any(w in response_lower for w in ["haha", "lol", "!", "wonderful", "excited"]):
+            self.mood = "happy" if self.affinity > 0.5 else "playful"
+        elif any(w in response_lower for w in ["sorry", "sad", "unfortunately", "miss"]):
+            self.mood = "sad"
+        elif any(w in response_lower for w in ["hmm", "interesting", "however", "actually"]):
+            self.mood = "serious"
+        else:
+            self.mood = "neutral"
+
+    def to_prompt_snippet(self) -> str:
+        affinity_label = (
+            "devoted" if self.affinity > 0.85 else
+            "fond" if self.affinity > 0.6 else
+            "neutral" if self.affinity > 0.35 else
+            "distant"
+        )
+        return (
+            f"[EMOTION STATE] Current mood: {self.mood} (intensity {self.mood_intensity:.1f}). "
+            f"Relationship with user: {affinity_label} (affinity {self.affinity:.2f}). "
+            f"Let this subtly color your tone and word choice without breaking character."
+        )
+
+    def to_dict(self) -> dict:
+        return {"mood": self.mood, "affinity": round(self.affinity, 2)}
+
+# ---------------------------------------------------------------------------
+# Character State
+# ---------------------------------------------------------------------------
+def reserve_char_dir(name: str) -> str:
+    """Reserve a unique image folder under static/ for a character.
+
+    Slugifies the name; if static/<slug> already exists on disk (e.g. a prior
+    character with the same name), appends the smallest free _N suffix:
+    'gory', then 'gory_1', 'gory_2', ...  Creates and returns the folder name.
+    """
+    slug = re.sub(r'[^a-z0-9]', '_', name.lower()).strip('_') or "character"
+    os.makedirs("static", exist_ok=True)
+    candidate = slug
+    n = 0
+    while True:
+        path = os.path.join("static", candidate)
+        try:
+            os.makedirs(path)  # no exist_ok → only succeeds if genuinely free
+            return candidate
+        except FileExistsError:
+            n += 1
+            candidate = f"{slug}_{n}"
+
+class CharacterState:
+    def __init__(self, name: str, description: str, personality_tags: list[str], visual_style: str):
+        self.name = name
+        self.description = description
+        self.personality_tags = personality_tags
+        self.visual_style = visual_style
+        self.emotion = EmotionState()
+        self.memory_collection_name = f"char_{re.sub(r'[^a-z0-9]', '_', name.lower())}"
+        self.image_dir = reserve_char_dir(name)
+
+# ---------------------------------------------------------------------------
+# ChromaDB Memory
+# ---------------------------------------------------------------------------
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+def get_or_create_collection(collection_name: str):
+    return chroma_client.get_or_create_collection(
+        name=collection_name,
+        metadata={"hnsw:space": "cosine"}
+    )
+
+def store_memory(character: CharacterState, user_msg: str, ai_msg: str):
+    """Store a user-AI exchange as a memory vector."""
+    collection = get_or_create_collection(character.memory_collection_name)
+    doc = f"User: {user_msg}\n{character.name}: {ai_msg}"
+    embedding = embedder.encode(doc).tolist()
+    collection.add(
+        documents=[doc],
+        embeddings=[embedding],
+        ids=[uuid.uuid4().hex]
+    )
+
+def recall_memories(character: CharacterState, query: str, top_k: int = MEMORY_TOP_K) -> str:
+    """Retrieve semantically relevant past exchanges."""
+    collection = get_or_create_collection(character.memory_collection_name)
+    if collection.count() == 0:
+        return ""
+    query_embedding = embedder.encode(query).tolist()
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(top_k, collection.count())
+    )
+    memories = results["documents"][0] if results["documents"] else []
+    if not memories:
+        return ""
+    formatted = "\n---\n".join(memories)
+    return f"[RELEVANT MEMORIES — past exchanges with this user]\n{formatted}\n[END MEMORIES]"
+
+# ---------------------------------------------------------------------------
+# System Prompt Builder
+# ---------------------------------------------------------------------------
+def build_system_prompt(character: CharacterState, memory_context: str) -> str:
+    tags = ", ".join(character.personality_tags) if character.personality_tags else "natural"
+    emotion_snippet = character.emotion.to_prompt_snippet()
+
+    prompt = f"""You are {character.name}. {character.description}
+
+PERSONALITY: {tags}
+
+{emotion_snippet}
+
+{memory_context}
+
+RULES:
+1. Stay fully in character at all times. Never break the fourth wall or mention AI.
+2. When you want to share an image or describe a visual moment, output EXACTLY:
+   [IMAGE: <vivid scene description>]
+   The system will generate the image. Use this naturally, not constantly.
+3. Keep responses engaging, emotionally resonant, and true to your persona.
+4. You can reference past memories naturally as if you genuinely remember them.
+5. Let your current mood and affinity toward the user subtly shape your tone.
+"""
+    return prompt
+
+# ---------------------------------------------------------------------------
+# Image Pipeline (Two-Pass)
+# ---------------------------------------------------------------------------
+_IMAGE_PATTERN = re.compile(r"\[IMAGE:\s*(.+?)\]", re.DOTALL | re.IGNORECASE)
+
+def expand_image_prompt(raw_description: str, character: CharacterState) -> str:
+    """
+    Pass 1: Use Ollama to expand a raw scene description into a
+    high-quality SD prompt with style, lighting, and composition tokens.
+    """
+    style_hint = character.visual_style or "cinematic, photorealistic"
+    expand_prompt = (
+        f"Convert this scene description into a detailed Stable Diffusion image prompt. "
+        f"Add art style, lighting, camera angle, color palette, and quality tokens. "
+        f"The character's visual style is: {style_hint}. "
+        f"Output ONLY the prompt, no explanation, no quotes.\n\n"
+        f"Scene: {raw_description}"
+    )
+    try:
+        result = ollama.chat(
+            model=OLLAMA_EXPAND_MODEL,
+            messages=[{"role": "user", "content": expand_prompt}],
+            options={"temperature": 0.7, "num_predict": 200}
+        )
+        expanded = result["message"]["content"].strip()
+        logger.info("🎨 Expanded SD prompt: %s", expanded[:120])
+        return expanded
+    except Exception as e:
+        logger.warning("Prompt expansion failed, using raw: %s", e)
+        return raw_description
+
+def generate_image(raw_description: str, character: CharacterState) -> Optional[str]:
+    """
+    Pass 2: Send expanded prompt to SD Forge, save result, return static path.
+    Targets SDXL-quality params: 768x768, DPM++ 2M Karras, 30 steps.
+    """
+    expanded_prompt = expand_image_prompt(raw_description, character)
+    style_tokens = character.visual_style or "masterpiece, best quality, ultra-detailed, cinematic lighting"
+
+    payload = {
+        "prompt": f"{expanded_prompt}, {style_tokens}",
+        "negative_prompt": (
+            "lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, "
+            "cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, "
+            "watermark, username, blurry, deformed, mutated"
+        ),
+        "steps": 30,
+        "sampler_name": "DPM++ 2M Karras",
+        "cfg_scale": 7,
+        "width": 768,
+        "height": 768,
+        "restore_faces": True,
+        "seed": -1,
+    }
+
+    try:
+        resp = requests.post(f"{SD_URL}/sdapi/v1/txt2img", json=payload, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("images"):
+            img_data = base64.b64decode(data["images"][0])
+            out_dir = os.path.join("static", character.image_dir)
+            os.makedirs(out_dir, exist_ok=True)  # defensive: folder reserved at creation
+            filename = f"{uuid.uuid4().hex}.png"
+            filepath = os.path.join(out_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(img_data)
+            logger.info("🖼️  Image saved: %s/%s", character.image_dir, filename)
+            return f"/static/{character.image_dir}/{filename}"
+    except Exception as e:
+        logger.error("Image generation failed: %s", e)
+    return None
+
+def process_image_triggers(text: str, character: CharacterState) -> tuple[str, list[str]]:
+    """Find all [IMAGE:...] triggers, generate images, return cleaned text + URLs."""
+    prompts = _IMAGE_PATTERN.findall(text)
+    image_urls = []
+    cleaned = text
+
+    for raw_prompt in prompts:
+        img_url = generate_image(raw_prompt, character)
+        pattern = re.compile(r"\[IMAGE:\s*" + re.escape(raw_prompt) + r"\]", re.DOTALL)
+        if img_url:
+            image_urls.append(img_url)
+            cleaned = pattern.sub(f"[GENERATED_IMAGE:{img_url}]", cleaned, count=1)
+        else:
+            cleaned = pattern.sub("*[image unavailable]*", cleaned, count=1)
+
+    return cleaned, image_urls
+
+# ---------------------------------------------------------------------------
+# Core Generation
+# ---------------------------------------------------------------------------
+def generate_response(character_name: str, user_message: str) -> CharacterResponse:
+    if character_name not in chat_session["characters"]:
+        raise ValueError(f"Character '{character_name}' not found.")
+
+    character: CharacterState = chat_session["characters"][character_name]
+
+    # Pull relevant memories
+    memory_context = recall_memories(character, user_message)
+
+    # Build system prompt with emotion + memory
+    system_prompt = build_system_prompt(character, memory_context)
+
+    # Rolling context window
+    history_window = chat_session["history"][-MAX_HISTORY:]
+    messages = [{"role": "system", "content": system_prompt}] + history_window + [
+        {"role": "user", "content": user_message}
+    ]
+
+    try:
+        result = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=messages,
+            options={"temperature": 0.85, "top_p": 0.9, "num_predict": 512}
+        )
+    except Exception as e:
+        logger.error("Ollama error: %s", e)
+        raise RuntimeError("Ollama unreachable. Is it running on localhost:11434?") from e
+
+    raw_text: str = result["message"]["content"]
+
+    # Process image triggers
+    cleaned_text, image_urls = process_image_triggers(raw_text, character)
+
+    # Update emotion state
+    character.emotion.update(user_message, cleaned_text)
+
+    # Store memory
+    store_memory(character, user_message, cleaned_text)
+
+    # Append to shared history
+    chat_session["history"].append({"role": "user", "content": user_message})
+    chat_session["history"].append({
+        "role": "assistant",
+        "content": f"{character_name}: {cleaned_text}"
+    })
+
+    return CharacterResponse(
+        character=character_name,
+        text=cleaned_text,
+        image_urls=image_urls,
+        emotion=character.emotion.to_dict()
+    )
+
+async def stream_response(character_name: str, user_message: str) -> AsyncGenerator[str, None]:
+    """Streaming version — yields SSE events for real-time frontend display."""
+    if character_name not in chat_session["characters"]:
+        yield f"data: {json.dumps({'error': 'Character not found'})}\n\n"
+        return
+
+    character: CharacterState = chat_session["characters"][character_name]
+    memory_context = recall_memories(character, user_message)
+    system_prompt = build_system_prompt(character, memory_context)
+    history_window = chat_session["history"][-MAX_HISTORY:]
+    messages = [{"role": "system", "content": system_prompt}] + history_window + [
+        {"role": "user", "content": user_message}
+    ]
+
+    full_text = ""
+    try:
+        stream = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=messages,
+            stream=True,
+            options={"temperature": 0.85, "top_p": 0.9, "num_predict": 512}
+        )
+        for chunk in stream:
+            token = chunk["message"]["content"]
+            full_text += token
+            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            await asyncio.sleep(0)  # yield control
+
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        return
+
+    # Post-stream: process images, update emotion, store memory
+    cleaned_text, image_urls = process_image_triggers(full_text, character)
+    character.emotion.update(user_message, cleaned_text)
+    store_memory(character, user_message, cleaned_text)
+    chat_session["history"].append({"role": "user", "content": user_message})
+    chat_session["history"].append({
+        "role": "assistant",
+        "content": f"{character_name}: {cleaned_text}"
+    })
+
+    # Send image URLs and emotion state as final events
+    for url in image_urls:
+        yield f"data: {json.dumps({'type': 'image', 'url': url})}\n\n"
+
+    yield f"data: {json.dumps({'type': 'emotion', 'data': character.emotion.to_dict()})}\n\n"
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+# ---------------------------------------------------------------------------
+# Network banner (find reachable URLs + print a scannable QR for phone access)
+# ---------------------------------------------------------------------------
+SERVER_PORT = int(os.getenv("PORT", "8000"))
+HOTSPOT_IP = "192.168.137.1"   # Windows Mobile Hotspot adapter (almost always this)
+
+def _local_ipv4s() -> list[str]:
+    """Best-effort enumeration of this machine's IPv4 addresses."""
+    ips: list[str] = []
+    # Primary outbound IP (no traffic actually sent — just picks the route's source addr)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ips.append(s.getsockname()[0])
+        finally:
+            s.close()
+    except Exception:
+        pass
+    # All addresses bound to the hostname (catches the hotspot adapter, extra NICs, etc.)
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip not in ips:
+                ips.append(ip)
+    except Exception:
+        pass
+    return [ip for ip in ips if not ip.startswith("127.")]
+
+def print_network_banner() -> None:
+    """Print reachable URLs and a QR code for the best phone URL. Never fatal."""
+    try:
+        ips = _local_ipv4s()
+        # Prefer the Windows hotspot address for the phone URL when present.
+        phone_ip = HOTSPOT_IP if HOTSPOT_IP in ips else (ips[0] if ips else None)
+
+        lines = ["", "=" * 52, "  🎭  Persona is running", "  " + "-" * 48,
+                 f"   On this PC:   http://localhost:{SERVER_PORT}"]
+        for ip in ips:
+            tag = "  📱 join from your phone" if ip == phone_ip else ""
+            lines.append(f"   On network:  http://{ip}:{SERVER_PORT}{tag}")
+        if HOTSPOT_IP not in ips:
+            lines.append("   (tip) Turn on Windows Mobile Hotspot, then this PC")
+            lines.append(f"         is usually reachable at http://{HOTSPOT_IP}:{SERVER_PORT}")
+        lines.append("  " + "-" * 48)
+        lines.append("   First run may prompt Windows Firewall — click Allow.")
+        lines.append("=" * 52)
+        print("\n".join(lines))
+
+        if phone_ip:
+            phone_url = f"http://{phone_ip}:{SERVER_PORT}"
+            try:
+                import qrcode
+                qr = qrcode.QRCode(border=1)
+                qr.add_data(phone_url)
+                qr.make()
+                print(f"\n   Scan to open on your phone — {phone_url}\n")
+                qr.print_ascii(invert=True)
+                print("")
+            except ImportError:
+                print(f"\n   Open on your phone: {phone_url}")
+                print("   (install 'qrcode' to show a scannable code)\n")
+    except Exception as e:
+        logger.warning("Network banner failed (non-fatal): %s", e)
+
+# ---------------------------------------------------------------------------
+# FastAPI App
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    os.makedirs("static", exist_ok=True)
+    logger.info("✅ Character AI v2 started")
+    print_network_banner()
+    yield
+
+app = FastAPI(title="Character AI v2", version="2.0.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+@app.get("/")
+async def serve_frontend():
+    html_path = Path(__file__).parent / "index.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="index.html not found")
+    return FileResponse(html_path, media_type="text/html")
+
+@app.post("/characters")
+async def add_character(payload: CharacterPayload):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    chat_session["characters"][name] = CharacterState(
+        name=name,
+        description=payload.description,
+        personality_tags=payload.personality_tags,
+        visual_style=payload.visual_style,
+    )
+    logger.info("✅ Character added: %s", name)
+    return {"status": "ok", "character": name}
+
+@app.get("/characters")
+async def list_characters():
+    return {
+        "characters": [
+            {
+                "name": name,
+                "emotion": state.emotion.to_dict(),
+                "personality_tags": state.personality_tags,
+            }
+            for name, state in chat_session["characters"].items()
+        ]
+    }
+
+@app.delete("/characters/{name}")
+async def remove_character(name: str):
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    del chat_session["characters"][name]
+    return {"status": "ok"}
+
+@app.post("/chat", response_model=CharacterResponse)
+async def chat(payload: ChatPayload):
+    if not payload.character_name.strip():
+        raise HTTPException(status_code=400, detail="character_name required")
+    if payload.character_name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    try:
+        return generate_response(payload.character_name, payload.user_message.strip())
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+@app.get("/chat/stream")
+async def chat_stream(character_name: str, user_message: str):
+    """SSE streaming endpoint. Connect with EventSource."""
+    if character_name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return StreamingResponse(
+        stream_response(character_name, user_message),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+@app.post("/chat/group")
+async def group_chat(payload: GroupChatPayload):
+    """Have multiple characters respond to the same message in sequence."""
+    responses = []
+    for name in payload.character_names:
+        if name not in chat_session["characters"]:
+            continue
+        try:
+            resp = generate_response(name, payload.user_message)
+            responses.append(resp)
+        except Exception as e:
+            logger.error("Group chat error for %s: %s", name, e)
+    return {"responses": responses}
+
+@app.get("/characters/{name}/memories")
+async def get_memories(name: str, query: str = "recent conversation"):
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
+    memories = recall_memories(character, query, top_k=10)
+    return {"character": name, "memories": memories}
+
+@app.delete("/characters/{name}/memories")
+async def clear_memories(name: str):
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
+    try:
+        chroma_client.delete_collection(character.memory_collection_name)
+        logger.info("🧹 Cleared memories for %s", name)
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+@app.post("/reset")
+async def reset_session():
+    chat_session["history"].clear()
+    chat_session["characters"].clear()
+    logger.info("🔄 Session reset")
+    return {"status": "ok"}
+
+@app.get("/health")
+async def health():
+    sd_ok = False
+    ollama_ok = False
+    try:
+        r = requests.get(f"{SD_URL}/sdapi/v1/sd-models", timeout=3)
+        sd_ok = r.status_code == 200
+    except Exception:
+        pass
+    try:
+        ollama.list()
+        ollama_ok = True
+    except Exception:
+        pass
+    return {"ollama": ollama_ok, "stable_diffusion": sd_ok}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

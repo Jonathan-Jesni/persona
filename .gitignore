@@ -1,0 +1,24 @@
+# Python virtual environment
+venv/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+
+# Database (ChromaDB semantic memory)
+chroma_db/
+
+# Generated images
+static/
+
+# Editor / IDE directories
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store

@@ -1,0 +1,9 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+ollama==0.3.3
+requests==2.32.3
+pydantic==2.8.2
+chromadb==0.5.5
+sentence-transformers==3.0.1
+python-multipart==0.0.9
+qrcode==7.4.2

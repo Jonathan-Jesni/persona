@@ -142,7 +142,11 @@ textarea.field{height:52px;line-height:1.45}
 .aiBubble{background:var(--aiBg);color:var(--text);padding:11px 15px;border-radius:16px 16px 16px 4px;font-size:14px;line-height:1.56;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word}
 .aiBubble.error{border-color:var(--offline);color:var(--offline)}
 .cursor{display:inline-block;width:8px;height:15px;background:var(--accent);margin-left:2px;border-radius:2px;vertical-align:-2px;animation:blink 1s steps(1) infinite}
-.aiMeta{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3);padding-left:4px}
+.aiName{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:11px;color:var(--accent2);padding-left:2px}
+.aiMetaRow{display:flex;align-items:center;gap:8px;padding-left:4px}
+.speakBtn{border:none;background:transparent;cursor:pointer;font-size:12px;opacity:.55;padding:0;line-height:1}
+.speakBtn:hover{opacity:1}
+.aiMeta{font-family:'Space Mono',monospace;font-size:9px;color:var(--text3)}
 .aiMeta.gen{color:var(--accent2)}
 
 /* image cards */
@@ -165,6 +169,8 @@ textarea.field{height:52px;line-height:1.45}
 .composer{flex-shrink:0;padding:14px 24px 18px;border-top:1px solid var(--border);background:var(--bg)}
 .composerBox{display:flex;align-items:flex-end;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:16px;padding:8px 8px 8px 6px}
 .genBtn{width:38px;height:38px;flex-shrink:0;border-radius:11px;border:none;background:var(--accentSoft);color:var(--accent);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+@keyframes recPulse{0%,100%{box-shadow:0 0 0 0 rgba(240,85,106,.5)}50%{box-shadow:0 0 0 6px rgba(240,85,106,0)}}
+#micBtn.recording{background:var(--offline);color:#fff;animation:recPulse 1.2s ease-in-out infinite}
 .composerInput{flex:1;background:transparent;border:none;color:var(--text);font-size:14px;line-height:1.5;padding:9px 4px;height:40px;max-height:120px}
 .sendBtn{width:40px;height:40px;flex-shrink:0;border-radius:12px;border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:17px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(124,106,247,.4)}
 .sendBtn:disabled{opacity:.5;cursor:default}
@@ -174,6 +180,32 @@ textarea.field{height:52px;line-height:1.45}
 .composerHint .r .d{width:5px;height:5px;border-radius:50%;background:var(--accent2);box-shadow:0 0 7px var(--accent2)}
 .composerHint .r.off{color:var(--text3)}
 .composerHint .r.off .d{background:var(--text3);box-shadow:none}
+
+/* ---------------- Avatar portrait spinner ---------------- */
+.avatarSpin{width:55%;height:55%;max-width:18px;max-height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .8s linear infinite}
+
+/* ---------------- Gallery modal + lightbox ---------------- */
+.modalBack{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;padding:24px}
+.modalBack.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;max-width:760px;width:100%;max-height:84vh;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.modalHead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
+.modalTitle{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px}
+.modalClose{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;font-size:15px}
+.galleryGrid{padding:16px;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.galleryItem{border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;aspect-ratio:1;background:var(--surface2)}
+.galleryItem img{width:100%;height:100%;object-fit:cover;display:block}
+.galleryEmpty{padding:36px;text-align:center;color:var(--text3);font-family:'Space Mono',monospace;font-size:12px}
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:60;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px}
+.lightbox.open{display:flex}
+.lightbox img{max-width:92vw;max-height:78vh;border-radius:10px;box-shadow:var(--shadow)}
+.lightbox .lbActs{display:flex;gap:10px}
+.lightbox .lbActs a,.lightbox .lbActs button{font-family:'Space Mono',monospace;font-size:12px;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);padding:7px 14px;border-radius:9px;cursor:pointer;text-decoration:none}
+.menuList{padding:10px;display:flex;flex-direction:column;gap:4px}
+.menuItem{text-align:left;padding:11px 12px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--text);font-family:'Hanken Grotesk',sans-serif;font-size:13.5px;cursor:pointer}
+.menuItem:hover{background:var(--surface2);border-color:var(--border)}
+.menuItem.danger{color:var(--offline)}
+.editBody{padding:16px;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
+.editLabel{font-family:'Space Mono',monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin:8px 0 2px}
 
 /* ---------------- Mobile drawer + backdrop ---------------- */
 .menuBtn{display:none;width:34px;height:34px;flex-shrink:0;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:16px;cursor:pointer;align-items:center;justify-content:center}
@@ -209,6 +241,68 @@ textarea.field{height:52px;line-height:1.45}
 <body>
 <div class="app" id="app">
   <div class="backdrop" id="backdrop"></div>
+
+  <div class="modalBack" id="galleryModal">
+    <div class="modal">
+      <div class="modalHead">
+        <span class="modalTitle" id="galleryTitle">Gallery</span>
+        <button class="modalClose" id="galleryClose">✕</button>
+      </div>
+      <div class="galleryGrid" id="galleryGrid"></div>
+    </div>
+  </div>
+
+  <div class="lightbox" id="lightbox">
+    <img id="lightboxImg" src="" alt="">
+    <div class="lbActs">
+      <a id="lightboxDownload" href="" download>↓ Download</a>
+      <button id="lightboxClose">✕ Close</button>
+    </div>
+  </div>
+
+  <div class="modalBack" id="menuModal">
+    <div class="modal" style="max-width:280px">
+      <div class="modalHead"><span class="modalTitle" id="menuTitle">Options</span>
+        <button class="modalClose" id="menuClose">✕</button></div>
+      <div class="menuList">
+        <button class="menuItem" data-act="edit">✎ Edit character</button>
+        <button class="menuItem" data-act="portrait">⟳ Regenerate portrait</button>
+        <button class="menuItem" data-act="duplicate">⧉ Duplicate</button>
+        <button class="menuItem danger" data-act="delete">🗑 Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modalBack" id="editModal">
+    <div class="modal" style="max-width:420px">
+      <div class="modalHead"><span class="modalTitle">Edit character</span>
+        <button class="modalClose" id="editClose">✕</button></div>
+      <div class="editBody">
+        <label class="editLabel">Personality (comma separated)</label>
+        <input class="field" id="edTags">
+        <label class="editLabel">Backstory &amp; description</label>
+        <textarea class="field" id="edDesc" style="height:80px"></textarea>
+        <label class="editLabel">Visual style</label>
+        <input class="field" id="edStyle">
+        <label class="editLabel" id="edVoiceLabel" style="display:none">Voice</label>
+        <select class="field" id="edVoice" style="display:none"></select>
+        <button class="createBtn" id="edSave" style="margin-top:6px">Save changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modalBack" id="groupModal">
+    <div class="modal" style="max-width:340px">
+      <div class="modalHead"><span class="modalTitle">Group chat</span>
+        <button class="modalClose" id="groupClose">✕</button></div>
+      <div class="editBody">
+        <div class="editLabel">Pick characters who'll reply in turn</div>
+        <div id="groupPick" style="display:flex;flex-direction:column;gap:2px;max-height:46vh;overflow-y:auto"></div>
+        <button class="createBtn" id="groupStart" style="margin-top:8px">Start group chat</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= SIDEBAR ================= -->
   <aside class="aside">
     <div class="brandRow">
@@ -243,6 +337,7 @@ textarea.field{height:52px;line-height:1.45}
         <span class="star">✦</span>
         <input class="field" id="ncStyle" placeholder="Visual style — e.g. cinematic, photoreal">
       </div>
+      <select class="field" id="ncVoice" style="display:none"></select>
       <button class="createBtn" id="createBtn">+ Create character</button>
     </div>
   </aside>
@@ -254,6 +349,7 @@ textarea.field{height:52px;line-height:1.45}
     <div class="composer">
       <div class="composerBox">
         <button class="genBtn" id="genBtn" title="Generate image">✦</button>
+        <button class="genBtn" id="micBtn" title="Speak (voice input)" style="display:none">🎤</button>
         <textarea class="composerInput" id="composerInput" placeholder="Message…"></textarea>
         <button class="sendBtn" id="sendBtn">↑</button>
       </div>
@@ -296,6 +392,16 @@ const moodOf = m => MOOD_MAP[m] || MOOD_MAP.neutral;
 function hashStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
 const avatarFor = name => AVATARS[hashStr(name) % AVATARS.length];
 const initialOf = name => (name.trim()[0] || '?').toUpperCase();
+// Avatar markup: real SD portrait if the character has one, else gradient + initial.
+function avatarMarkup(c, cls, haloPx){
+  const av = avatarFor(c.name);
+  const shadow = `box-shadow:0 0 ${haloPx}px ${av.halo}`;
+  const pending = state.portraitPending[c.name] ? '<span class="avatarSpin"></span>' : '';
+  if(c.portrait_url){
+    return `<div class="avatar ${cls}" style="background-image:url('${escapeHtml(c.portrait_url)}');background-size:cover;background-position:center;${shadow}">${pending}</div>`;
+  }
+  return `<div class="avatar ${cls}" style="background:${av.bg};${shadow}">${pending||initialOf(c.name)}</div>`;
+}
 const titleCase = s => s ? s.charAt(0).toUpperCase()+s.slice(1) : s;
 const subtitleFor = c => (c.personality_tags && c.personality_tags[0]) ? titleCase(c.personality_tags[0]) : 'character';
 const pct = aff => Math.round((aff || 0) * 100);
@@ -318,8 +424,30 @@ const state = {
   order: [],               // display order of names
   activeName: null,
   messagesByChar: {},      // name -> [ {role, text, time, image?, error?, streaming?} ]
-  health: { ollama:false, stable_diffusion:false },
+  loaded: {},              // name -> true once the stored transcript has been replayed
+  portraitPending: {},     // name -> true while an SD portrait is generating
+  voices: [],              // available Piper voices [{id,label}] (Phase 4)
+  groupMode: false,        // group chat active?
+  group: [],               // participating character names (in reply order)
+  groupMessages: [],       // shared group transcript (ephemeral, per session)
+  groupBusy: false,        // a group round is streaming
+  autoSpeak: localStorage.getItem('persona-autospeak') === '1',
+  health: { ollama:false, stable_diffusion:false, tts:false, stt:false },
 };
+
+const charByName = n => state.characters[n] || { name:n, personality_tags:[] };
+
+// Fill a <select> with available voices (or hide it + its label if none exist).
+function populateVoiceSelect(sel, current, labelId){
+  const label = labelId ? document.getElementById(labelId) : null;
+  if(!state.voices.length){
+    sel.style.display='none'; if(label) label.style.display='none'; return;
+  }
+  sel.style.display=''; if(label) label.style.display='';
+  sel.innerHTML = state.voices.map(v =>
+    `<option value="${escapeHtml(v.id)}"${v.id===current?' selected':''}>${escapeHtml(v.label)}</option>`
+  ).join('');
+}
 
 let streamCtx = null;      // active stream references
 
@@ -329,7 +457,7 @@ let streamCtx = null;      // active stream references
 const $ = id => document.getElementById(id);
 const el = { app:$('app'), services:$('services'), charList:$('charList'), charCount:$('charCount'),
   header:$('header'), feed:$('feed'), input:$('composerInput'), send:$('sendBtn'), gen:$('genBtn'),
-  genStatus:$('genStatus'), create:$('createBtn') };
+  genStatus:$('genStatus'), create:$('createBtn'), mic:$('micBtn') };
 
 const activeChar = () => state.characters[state.activeName] || null;
 const activeMessages = () => state.messagesByChar[state.activeName] || [];
@@ -389,7 +517,7 @@ function renderCharList(){
     return `<div class="card${active?' active':''}" data-name="${escapeHtml(name)}">
       ${active?'<div class="activeBar"></div>':''}
       <div class="cardTop">
-        <div class="avatar cardAvatar" style="background:${av.bg};box-shadow:0 0 16px ${av.halo}">${initialOf(name)}</div>
+        ${avatarMarkup(c,'cardAvatar',16)}
         <div style="flex:1;min-width:0">
           <div class="cardNameRow">
             <span class="cardName">${escapeHtml(name)}</span>
@@ -415,6 +543,7 @@ function renderCharList(){
 // Render: chat header                                                      //
 // ----------------------------------------------------------------------- //
 function renderHeader(){
+  if(state.groupMode){ renderGroupHeader(); return; }
   const c = activeChar();
   if(!c){
     el.header.innerHTML = `<button class="menuBtn" id="menuBtn">☰</button>
@@ -436,7 +565,7 @@ function renderHeader(){
     <button class="menuBtn" id="menuBtn">☰</button>
     <div class="headAvatarWrap">
       <div class="headHalo" style="border-color:${mood.color}"></div>
-      <div class="avatar headAvatar" style="background:${av.bg};box-shadow:0 0 22px ${av.halo}">${initialOf(c.name)}</div>
+      ${avatarMarkup(c,'headAvatar',22)}
     </div>
     <div class="headInfo">
       <div class="headNameRow">
@@ -459,13 +588,41 @@ function renderHeader(){
       </div>
     </div>
     <div class="headBtns">
+      ${state.health.tts ? `<button class="hbtnIcon" id="autoSpeakBtn" title="Auto-speak replies" style="${state.autoSpeak?'background:var(--accentSoft);color:var(--accent)':''}">${state.autoSpeak?'🔊':'🔈'}</button>` : ''}
+      <button class="hbtnIcon" id="groupBtn" title="Group chat">👥</button>
+      <button class="hbtnIcon" id="galleryBtn" title="Gallery">🖼</button>
       <button class="hbtn" id="clearMemBtn"><span class="ic">⌫</span>Clear Memory</button>
       <button class="hbtn" id="resetBtn"><span class="ic">↺</span>Reset Session</button>
-      <button class="hbtnIcon">⋯</button>
+      <button class="hbtnIcon" id="charMenuBtn" title="Character options">⋯</button>
     </div>`;
   $('menuBtn').addEventListener('click', toggleDrawer);
+  if($('autoSpeakBtn')) $('autoSpeakBtn').addEventListener('click', toggleAutoSpeak);
+  $('groupBtn').addEventListener('click', openGroupModal);
+  $('galleryBtn').addEventListener('click', () => openGallery(c.name));
   $('clearMemBtn').addEventListener('click', clearMemory);
   $('resetBtn').addEventListener('click', resetSession);
+  $('charMenuBtn').addEventListener('click', openCharMenu);
+}
+
+function renderGroupHeader(){
+  el.input.disabled = el.send.disabled = el.gen.disabled = false;
+  el.input.placeholder = `Message the group…`;
+  const avatars = state.group.map(n =>
+    `<div style="margin-left:-8px">${avatarMarkup(charByName(n),'aiAvatar',12)}</div>`).join('');
+  el.header.innerHTML = `
+    <button class="menuBtn" id="menuBtn">☰</button>
+    <div style="display:flex;align-items:center;padding-left:8px">${avatars}</div>
+    <div class="headInfo">
+      <div class="headNameRow"><span class="headName">Group chat</span></div>
+      <div class="headSubRow"><span class="headTitle">${state.group.map(escapeHtml).join(' · ')}</span></div>
+    </div>
+    <div class="headBtns">
+      <button class="hbtn" id="resetBtn"><span class="ic">↺</span>Reset Session</button>
+      <button class="hbtn" id="exitGroupBtn"><span class="ic">✕</span>Leave group</button>
+    </div>`;
+  $('menuBtn').addEventListener('click', toggleDrawer);
+  $('resetBtn').addEventListener('click', resetSession);
+  $('exitGroupBtn').addEventListener('click', exitGroup);
 }
 
 // ----------------------------------------------------------------------- //
@@ -473,6 +630,173 @@ function renderHeader(){
 // ----------------------------------------------------------------------- //
 function toggleDrawer(){ el.app.classList.toggle('drawer-open'); }
 function closeDrawer(){ el.app.classList.remove('drawer-open'); }
+
+// ----------------------------------------------------------------------- //
+// Gallery + lightbox                                                       //
+// ----------------------------------------------------------------------- //
+async function openGallery(name){
+  $('galleryTitle').textContent = `${name} · gallery`;
+  const grid = $('galleryGrid');
+  grid.innerHTML = `<div class="galleryEmpty">Loading…</div>`;
+  $('galleryModal').classList.add('open');
+  try{
+    const r = await fetch(`/characters/${encodeURIComponent(name)}/gallery`);
+    const data = await r.json();
+    const imgs = data.images || [];
+    if(!imgs.length){ grid.innerHTML = `<div class="galleryEmpty">No images yet. Generate one in chat with ✦.</div>`; return; }
+    grid.innerHTML = imgs.map(im =>
+      `<div class="galleryItem" data-url="${escapeHtml(im.url)}"><img src="${escapeHtml(im.url)}" loading="lazy" alt=""></div>`
+    ).join('');
+    grid.querySelectorAll('.galleryItem').forEach(it =>
+      it.addEventListener('click', () => openLightbox(it.dataset.url)));
+  }catch(e){ grid.innerHTML = `<div class="galleryEmpty">Could not load gallery.</div>`; }
+}
+function closeGallery(){ $('galleryModal').classList.remove('open'); }
+function openLightbox(url){
+  $('lightboxImg').src = url;
+  $('lightboxDownload').href = url;
+  $('lightbox').classList.add('open');
+}
+function closeLightbox(){ $('lightbox').classList.remove('open'); $('lightboxImg').src=''; }
+
+// ----------------------------------------------------------------------- //
+// Character options: edit / regenerate portrait / duplicate / delete       //
+// ----------------------------------------------------------------------- //
+function openCharMenu(){
+  const c = activeChar(); if(!c) return;
+  $('menuTitle').textContent = c.name;
+  $('menuModal').classList.add('open');
+}
+function closeCharMenu(){ $('menuModal').classList.remove('open'); }
+
+async function handleCharAction(act){
+  const c = activeChar(); if(!c) return;
+  closeCharMenu();
+  if(act === 'edit') return openEdit(c);
+  if(act === 'portrait') return generatePortrait(c.name);
+  if(act === 'duplicate'){
+    try{
+      const r = await fetch(`/characters/${encodeURIComponent(c.name)}/duplicate`, { method:'POST' });
+      const data = await r.json();
+      await fetchCharacters(true);
+      if(data.character){ selectCharacter(data.character); generatePortrait(data.character); }
+    }catch(e){ alert('Duplicate failed: '+e.message); }
+    return;
+  }
+  if(act === 'delete'){
+    if(!confirm(`Delete ${c.name}? This removes their chat, memory, and images permanently.`)) return;
+    try{
+      await fetch(`/characters/${encodeURIComponent(c.name)}`, { method:'DELETE' });
+      delete state.messagesByChar[c.name]; delete state.loaded[c.name];
+      state.activeName = null;
+      await fetchCharacters(false);
+    }catch(e){ alert('Delete failed: '+e.message); }
+  }
+}
+
+function openEdit(c){
+  $('edTags').value = (c.personality_tags||[]).join(', ');
+  $('edDesc').value = c.description || '';
+  $('edStyle').value = c.visual_style || '';
+  populateVoiceSelect($('edVoice'), c.voice, 'edVoiceLabel');
+  $('editModal').classList.add('open');
+  $('edSave').onclick = async () => {
+    const body = {
+      personality_tags: $('edTags').value.split(',').map(s=>s.trim()).filter(Boolean),
+      description: $('edDesc').value.trim(),
+      visual_style: $('edStyle').value.trim(),
+    };
+    if(state.voices.length) body.voice = $('edVoice').value || null;
+    try{
+      await fetch(`/characters/${encodeURIComponent(c.name)}`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+      });
+      closeEdit();
+      await fetchCharacters(true);
+    }catch(e){ alert('Save failed: '+e.message); }
+  };
+}
+function closeEdit(){ $('editModal').classList.remove('open'); }
+
+// ----------------------------------------------------------------------- //
+// Group chat                                                               //
+// ----------------------------------------------------------------------- //
+function openGroupModal(){
+  const pick = $('groupPick');
+  if(!state.order.length){ alert('Create at least one character first.'); return; }
+  pick.innerHTML = state.order.map(n => {
+    const checked = state.group.includes(n) ? 'checked' : '';
+    return `<label class="menuItem" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+      <input type="checkbox" value="${escapeHtml(n)}" ${checked} style="accent-color:var(--accent)">
+      ${escapeHtml(n)}</label>`;
+  }).join('');
+  $('groupModal').classList.add('open');
+}
+function closeGroupModal(){ $('groupModal').classList.remove('open'); }
+
+function startGroup(){
+  const names = [...$('groupPick').querySelectorAll('input:checked')].map(i => i.value);
+  if(names.length < 1){ alert('Pick at least one character.'); return; }
+  state.groupMode = true; state.group = names; state.groupMessages = [];
+  closeGroupModal(); closeDrawer();
+  renderHeader(); renderFeed();
+}
+function exitGroup(){
+  if(state.groupBusy) return;
+  state.groupMode = false; state.group = []; state.groupMessages = [];
+  renderHeader(); renderFeed();
+}
+
+function groupSend(raw, displayUser){
+  if(state.groupBusy) return;
+  state.groupBusy = true;
+  state.groupMessages.push({ role:'user', text:displayUser, time:nowTime() });
+  renderFeed();
+  (async () => {
+    for(const name of state.group){
+      const aiMsg = { role:'ai', charName:name, text:'', raw:'', streaming:true, time:nowTime() };
+      state.groupMessages.push(aiMsg); renderFeed();
+      await streamOne(name, raw, aiMsg);
+    }
+    state.groupBusy = false;
+  })();
+}
+
+// Stream one character's reply into the given message object; resolves when done.
+function streamOne(name, raw, aiMsg){
+  return new Promise(resolve => {
+    const url = `/chat/stream?character_name=${encodeURIComponent(name)}&user_message=${encodeURIComponent(raw)}`;
+    const es = new EventSource(url);
+    const finish = () => { es.close(); renderFeed(); resolve(); };
+    es.onmessage = (ev) => {
+      let d; try{ d = JSON.parse(ev.data); }catch{ return; }
+      if(d.error){ aiMsg.streaming=false; aiMsg.error=true; aiMsg.text=aiMsg.text||('⚠ '+d.error); finish(); return; }
+      switch(d.type){
+        case 'token':
+          aiMsg.raw += d.content || ''; aiMsg.text = cleanText(aiMsg.raw);
+          if(hasImageTrigger(aiMsg.raw) && !aiMsg.image) aiMsg.image = { loading:true, label:imgLabelFrom(aiMsg.raw) };
+          renderFeed(); break;
+        case 'image':
+          aiMsg.image = { loading:false, url:d.url, label:(aiMsg.image&&aiMsg.image.label)||'' }; renderFeed(); break;
+        case 'emotion':
+          if(d.data && state.characters[name]){ state.characters[name].emotion = d.data; renderCharList(); } break;
+        case 'done':
+          aiMsg.streaming=false; aiMsg.time=nowTime();
+          if(aiMsg.image && aiMsg.image.loading) aiMsg.image=null;
+          finish();
+          maybeAutoSpeak(state.groupMessages.indexOf(aiMsg));
+          break;
+        case 'error':
+          aiMsg.streaming=false; aiMsg.error=true; aiMsg.text=aiMsg.text||('⚠ '+(d.content||'error')); finish(); break;
+      }
+    };
+    es.onerror = () => {
+      if(aiMsg.streaming && !aiMsg.text){ aiMsg.streaming=false; aiMsg.error=true; aiMsg.text='⚠ connection lost'; }
+      else { aiMsg.streaming=false; }
+      finish();
+    };
+  });
+}
 
 // ----------------------------------------------------------------------- //
 // Render: message feed                                                     //
@@ -506,19 +830,22 @@ function buildImageCard(img){
 }
 
 function renderFeed(){
+  const groupMode = state.groupMode;
   const c = activeChar();
-  const msgs = activeMessages();
-  if(!c){
+  const msgs = groupMode ? state.groupMessages : activeMessages();
+  if(!groupMode && !c){
     el.feed.innerHTML = `<div class="feedEmpty"><span class="big">Welcome to Persona</span>
       <span class="small">Create your first character in the sidebar to begin a conversation.</span></div>`;
     return;
   }
   if(!msgs.length){
-    el.feed.innerHTML = `<div class="feedEmpty"><span class="big">Say hello to ${escapeHtml(c.name)}</span>
-      <span class="small">Send a message to start. Images appear when ${escapeHtml(c.name)} chooses to share a scene — or nudge one with ✦.</span></div>`;
+    el.feed.innerHTML = groupMode
+      ? `<div class="feedEmpty"><span class="big">Group chat</span>
+         <span class="small">${state.group.map(escapeHtml).join(', ')} will reply in turn. Send a message to begin.</span></div>`
+      : `<div class="feedEmpty"><span class="big">Say hello to ${escapeHtml(c.name)}</span>
+         <span class="small">Send a message to start. Images appear when ${escapeHtml(c.name)} chooses to share a scene — or nudge one with ✦.</span></div>`;
     return;
   }
-  const av = avatarFor(c.name);
   el.feed.innerHTML = msgs.map((m,i) => {
     if(m.role === 'user'){
       return `<div class="rowUser"><div class="userCol">
@@ -526,17 +853,22 @@ function renderFeed(){
         <span class="userMeta">${m.time||''}</span>
       </div></div>`;
     }
+    const who = groupMode ? charByName(m.charName) : c;
     const metaTxt = m.streaming ? 'generating…' : (m.time||'');
     const metaCls = m.streaming ? 'aiMeta gen' : 'aiMeta';
     const cursor = m.streaming ? '<span class="cursor"></span>' : '';
     const bubbleCls = m.error ? 'aiBubble error' : 'aiBubble';
     const imgHtml = m.image ? buildImageCard(m.image) : '';
+    const nameLabel = groupMode ? `<span class="aiName">${escapeHtml(who.name)}</span>` : '';
+    const speakBtn = (state.health.tts && !m.streaming && m.text)
+      ? `<button class="speakBtn" data-speak="${i}" title="Speak">🔊</button>` : '';
     return `<div class="rowAi" data-idx="${i}">
-      <div class="avatar aiAvatar" style="background:${av.bg};box-shadow:0 0 14px ${av.halo}">${initialOf(c.name)}</div>
+      ${avatarMarkup(who,'aiAvatar',14)}
       <div class="aiCol">
+        ${nameLabel}
         <div class="${bubbleCls}">${escapeHtml(m.text)}${cursor}</div>
         ${imgHtml}
-        <span class="${metaCls}">${metaTxt}</span>
+        <span class="aiMetaRow"><span class="${metaCls}">${metaTxt}</span>${speakBtn}</span>
       </div>
     </div>`;
   }).join('');
@@ -544,6 +876,9 @@ function renderFeed(){
   // wire regenerate buttons
   el.feed.querySelectorAll('[data-regen]').forEach(btn => {
     btn.addEventListener('click', () => sendMessage('A new portrait of this scene' + IMAGE_NUDGE, true));
+  });
+  el.feed.querySelectorAll('[data-speak]').forEach(btn => {
+    btn.addEventListener('click', () => speakMessage(parseInt(btn.dataset.speak,10)));
   });
   scrollFeed();
 }
@@ -554,11 +889,84 @@ function scrollFeed(){ el.feed.scrollTop = el.feed.scrollHeight; }
 // API                                                                      //
 // ----------------------------------------------------------------------- //
 async function fetchHealth(){
+  const prev = `${state.health.tts}|${state.health.stt}`;
   try{
     const r = await fetch('/health');
     if(r.ok){ state.health = await r.json(); }
-  }catch(e){ state.health = { ollama:false, stable_diffusion:false }; }
+  }catch(e){ state.health = { ollama:false, stable_diffusion:false, tts:false, stt:false }; }
   renderServices();
+  updateMicButton();
+  // Re-render voice-dependent UI only when tts/stt availability actually changes.
+  if(`${state.health.tts}|${state.health.stt}` !== prev){ renderHeader(); renderFeed(); }
+}
+
+async function fetchVoices(){
+  try{
+    const r = await fetch('/voices');
+    const data = await r.json();
+    state.voices = data.voices || [];
+  }catch(e){ state.voices = []; }
+  populateVoiceSelect($('ncVoice'), null, null);
+}
+
+// ----------------------------------------------------------------------- //
+// Voice: speak (TTS) + mic (STT)                                           //
+// ----------------------------------------------------------------------- //
+let currentAudio = null;
+async function speakMessage(idx){
+  if(!state.health.tts) return;
+  const msgs = state.groupMode ? state.groupMessages : activeMessages();
+  const m = msgs[idx]; if(!m || !m.text) return;
+  const charName = state.groupMode ? m.charName : state.activeName;
+  try{
+    if(currentAudio){ currentAudio.pause(); currentAudio = null; }
+    const r = await fetch('/tts', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text:m.text, character_name:charName })
+    });
+    if(!r.ok) return;
+    const blob = await r.blob();
+    currentAudio = new Audio(URL.createObjectURL(blob));
+    currentAudio.play();
+  }catch(e){ /* TTS offline */ }
+}
+function maybeAutoSpeak(idx){ if(state.autoSpeak && state.health.tts) speakMessage(idx); }
+function toggleAutoSpeak(){
+  state.autoSpeak = !state.autoSpeak;
+  localStorage.setItem('persona-autospeak', state.autoSpeak ? '1' : '0');
+  renderHeader();
+}
+
+let mediaRecorder = null, recChunks = [];
+function updateMicButton(){
+  if(!el.mic) return;
+  el.mic.style.display = state.health.stt ? 'flex' : 'none';
+}
+async function toggleMic(){
+  if(!state.health.stt) return;
+  if(mediaRecorder && mediaRecorder.state === 'recording'){ mediaRecorder.stop(); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('Microphone needs a secure context (use localhost on desktop).'); return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    mediaRecorder = new MediaRecorder(stream);
+    recChunks = [];
+    mediaRecorder.ondataavailable = e => { if(e.data.size) recChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      el.mic.classList.remove('recording');
+      const blob = new Blob(recChunks, { type:'audio/webm' });
+      const fd = new FormData(); fd.append('audio', blob, 'clip.webm');
+      try{
+        const r = await fetch('/stt', { method:'POST', body:fd });
+        const data = await r.json();
+        if(data.text){ el.input.value = (el.input.value ? el.input.value+' ' : '') + data.text; autoGrow(); el.input.focus(); }
+      }catch(e){ /* STT failed */ }
+    };
+    mediaRecorder.start();
+    el.mic.classList.add('recording');
+  }catch(e){ alert('Could not access microphone: '+e.message); }
 }
 
 async function fetchCharacters(keepActive){
@@ -573,6 +981,10 @@ async function fetchCharacters(keepActive){
         name: c.name,
         personality_tags: c.personality_tags || [],
         emotion: c.emotion || { mood:'neutral', affinity:0.5 },
+        description: c.description || '',
+        visual_style: c.visual_style || '',
+        portrait_url: c.portrait_url || null,
+        voice: c.voice || null,
       };
       if(!state.messagesByChar[c.name]) state.messagesByChar[c.name] = [];
     }
@@ -585,6 +997,7 @@ async function fetchCharacters(keepActive){
     console.error('fetchCharacters failed', e);
   }
   renderCharList(); renderHeader(); renderFeed();
+  if(state.activeName) loadMessages(state.activeName);
 }
 
 async function createCharacter(){
@@ -595,17 +1008,38 @@ async function createCharacter(){
   if(!name) return;
   el.create.disabled = true;
   try{
+    const voiceVal = state.voices.length ? ($('ncVoice').value || null) : null;
     const r = await fetch('/characters', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ name, description, personality_tags:tags, visual_style })
+      body: JSON.stringify({ name, description, personality_tags:tags, visual_style, voice:voiceVal })
     });
     if(!r.ok){ const e = await r.json().catch(()=>({})); alert('Create failed: '+(e.detail||r.status)); return; }
     $('ncName').value=''; $('ncTags').value=''; $('ncDesc').value=''; $('ncStyle').value='';
     state.messagesByChar[name] = state.messagesByChar[name] || [];
+    state.loaded[name] = true;
     await fetchCharacters(true);
     selectCharacter(name);
+    generatePortrait(name);   // fire-and-forget; avatar updates when ready
   }catch(e){ alert('Create failed: '+e.message); }
   finally{ el.create.disabled = false; }
+}
+
+// Generate (or regenerate) the character's SD portrait; update avatars when ready.
+async function generatePortrait(name){
+  if(state.portraitPending[name]) return;
+  state.portraitPending[name] = true;
+  renderCharList(); if(name===state.activeName) renderHeader();
+  try{
+    const r = await fetch(`/characters/${encodeURIComponent(name)}/portrait`, { method:'POST' });
+    if(r.ok){
+      const data = await r.json();
+      if(state.characters[name]) state.characters[name].portrait_url = data.url;
+    }
+  }catch(e){ /* SD offline — keep initial avatar */ }
+  finally{
+    state.portraitPending[name] = false;
+    renderCharList(); if(name===state.activeName){ renderHeader(); renderFeed(); }
+  }
 }
 
 async function clearMemory(){
@@ -616,20 +1050,39 @@ async function clearMemory(){
 }
 
 async function resetSession(){
-  if(!confirm('Reset the entire session? This clears all characters and history.')) return;
+  if(!confirm('Reset all conversations? This clears every transcript and resets moods — your characters are kept.')) return;
   try{
     await fetch('/reset', { method:'POST' });
-    state.characters={}; state.order=[]; state.messagesByChar={}; state.activeName=null;
-    renderCharList(); renderHeader(); renderFeed();
+    state.messagesByChar={}; state.loaded={};
+    await fetchCharacters(true);
   }catch(e){ alert('Reset failed: '+e.message); }
 }
 
-function selectCharacter(name){
+async function selectCharacter(name){
   if(streamCtx) closeStream();
   state.activeName = name;
   el.input.value=''; autoGrow();
   closeDrawer();
   renderCharList(); renderHeader(); renderFeed();
+  await loadMessages(name);
+}
+
+// Replay the stored transcript for a character (once), then re-render the feed.
+async function loadMessages(name){
+  if(state.loaded[name]) return;
+  try{
+    const r = await fetch(`/characters/${encodeURIComponent(name)}/messages`);
+    if(!r.ok) return;
+    const data = await r.json();
+    state.messagesByChar[name] = (data.messages||[]).map(m => {
+      const time = (m.created_at||'').slice(11,16);
+      const msg = { role: m.role === 'user' ? 'user' : 'ai', text: m.content, time };
+      if(m.image_url) msg.image = { loading:false, url:m.image_url, label:'' };
+      return msg;
+    });
+    state.loaded[name] = true;
+    if(state.activeName === name) renderFeed();
+  }catch(e){ /* offline / no transcript — leave as-is */ }
 }
 
 // ----------------------------------------------------------------------- //
@@ -641,12 +1094,22 @@ function closeStream(){
 }
 
 function sendMessage(forcedText, isNudge){
+  if(state.groupMode){
+    if(state.groupBusy) return;
+    const raw = (forcedText != null) ? forcedText : el.input.value.trim();
+    if(!raw) return;
+    const displayUser = isNudge ? raw.replace(IMAGE_NUDGE,'').trim() : raw;
+    if(forcedText == null){ el.input.value=''; autoGrow(); }
+    groupSend(raw, displayUser);
+    return;
+  }
   const c = activeChar(); if(!c) return;
   if(streamCtx) return; // one stream at a time
   const raw = (forcedText != null) ? forcedText : el.input.value.trim();
   if(!raw) return;
 
   const name = state.activeName;
+  state.loaded[name] = true;   // don't let a late transcript replay clobber a live chat
   const msgs = state.messagesByChar[name];
   // clear any leftover streaming flags
   msgs.forEach(m => m.streaming=false);
@@ -693,6 +1156,7 @@ function sendMessage(forcedText, isNudge){
         aiMsg.streaming = false; aiMsg.time = nowTime();
         if(aiMsg.image && aiMsg.image.loading){ aiMsg.image = null; } // trigger present but no image came back
         closeStream(); renderFeed();
+        maybeAutoSpeak(activeMessages().length - 1);
         break;
       case 'error':
         finishWithError(aiMsg, data.content || 'stream error');
@@ -743,6 +1207,19 @@ function autoGrow(){
 // Wire events                                                              //
 // ----------------------------------------------------------------------- //
 $('backdrop').addEventListener('click', closeDrawer);
+$('galleryClose').addEventListener('click', closeGallery);
+$('galleryModal').addEventListener('click', e => { if(e.target.id==='galleryModal') closeGallery(); });
+$('lightboxClose').addEventListener('click', closeLightbox);
+$('lightbox').addEventListener('click', e => { if(e.target.id==='lightbox') closeLightbox(); });
+$('menuClose').addEventListener('click', closeCharMenu);
+$('menuModal').addEventListener('click', e => { if(e.target.id==='menuModal') closeCharMenu(); });
+$('menuModal').querySelectorAll('.menuItem').forEach(b =>
+  b.addEventListener('click', () => handleCharAction(b.dataset.act)));
+$('editClose').addEventListener('click', closeEdit);
+$('editModal').addEventListener('click', e => { if(e.target.id==='editModal') closeEdit(); });
+$('groupClose').addEventListener('click', closeGroupModal);
+$('groupModal').addEventListener('click', e => { if(e.target.id==='groupModal') closeGroupModal(); });
+$('groupStart').addEventListener('click', startGroup);
 $('btnDark').addEventListener('click', ()=>setTheme('dark'));
 $('btnLight').addEventListener('click', ()=>setTheme('light'));
 el.create.addEventListener('click', createCharacter);
@@ -754,6 +1231,7 @@ el.gen.addEventListener('click', ()=>{
   autoGrow();
   sendMessage(base + IMAGE_NUDGE, true);
 });
+el.mic.addEventListener('click', toggleMic);
 el.input.addEventListener('input', autoGrow);
 el.input.addEventListener('keydown', (e)=>{
   if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
@@ -765,6 +1243,7 @@ el.input.addEventListener('keydown', (e)=>{
 applyTheme();
 renderServices();
 fetchHealth();
+fetchVoices();
 fetchCharacters(false);
 setInterval(fetchHealth, 15000);
 

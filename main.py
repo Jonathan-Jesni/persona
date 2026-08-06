@@ -25,7 +25,9 @@ from contextlib import asynccontextmanager
 
 import chromadb
 import ollama
-from fastapi import FastAPI, HTTPException
+import storage
+import voice
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -64,6 +66,13 @@ class CharacterPayload(BaseModel):
     description: str
     personality_tags: list[str] = []   # e.g. ["witty", "sarcastic", "warm"]
     visual_style: str = ""             # SD style tokens for this character's images
+    voice: Optional[str] = None        # Piper voice id (Phase 4)
+
+class CharacterUpdate(BaseModel):
+    description: Optional[str] = None
+    personality_tags: Optional[list[str]] = None
+    visual_style: Optional[str] = None
+    voice: Optional[str] = None
 
 class ChatPayload(BaseModel):
     character_name: str
@@ -72,6 +81,11 @@ class ChatPayload(BaseModel):
 class GroupChatPayload(BaseModel):
     character_names: list[str]
     user_message: str
+
+class TTSPayload(BaseModel):
+    text: str
+    character_name: Optional[str] = None
+    voice: Optional[str] = None
 
 class CharacterResponse(BaseModel):
     character: str
@@ -157,14 +171,62 @@ def reserve_char_dir(name: str) -> str:
             candidate = f"{slug}_{n}"
 
 class CharacterState:
-    def __init__(self, name: str, description: str, personality_tags: list[str], visual_style: str):
+    def __init__(self, name: str, description: str, personality_tags: list[str], visual_style: str,
+                 image_dir: Optional[str] = None, portrait_url: Optional[str] = None,
+                 voice: Optional[str] = None, mood: str = "neutral",
+                 affinity: float = 0.5, mood_intensity: float = 0.5):
         self.name = name
         self.description = description
         self.personality_tags = personality_tags
         self.visual_style = visual_style
+        self.portrait_url = portrait_url
+        self.voice = voice
         self.emotion = EmotionState()
+        self.emotion.mood = mood
+        self.emotion.affinity = affinity
+        self.emotion.mood_intensity = mood_intensity
         self.memory_collection_name = f"char_{re.sub(r'[^a-z0-9]', '_', name.lower())}"
-        self.image_dir = reserve_char_dir(name)
+        # Reserve a NEW folder only when creating; loading reuses the stored one.
+        self.image_dir = image_dir if image_dir is not None else reserve_char_dir(name)
+
+    def persist(self) -> None:
+        """Write this character's full state to SQLite."""
+        storage.upsert_character(
+            name=self.name, description=self.description,
+            personality_tags=self.personality_tags, visual_style=self.visual_style,
+            image_dir=self.image_dir, mood=self.emotion.mood,
+            affinity=self.emotion.affinity, mood_intensity=self.emotion.mood_intensity,
+            portrait_url=self.portrait_url, voice=self.voice,
+        )
+
+
+def persist_exchange(character: "CharacterState", user_message: str,
+                     ai_text: str, image_urls: list[str], kind: str = "solo") -> None:
+    """Save a user→AI exchange + the character's evolved emotion to SQLite."""
+    try:
+        storage.add_message(character.name, "user", user_message, kind=kind)
+        storage.add_message(character.name, "ai", ai_text,
+                            image_url=(image_urls[0] if image_urls else None), kind=kind)
+        storage.update_emotion(character.name, character.emotion.mood,
+                               character.emotion.affinity, character.emotion.mood_intensity)
+    except Exception as e:
+        logger.warning("persist_exchange failed (non-fatal): %s", e)
+
+
+def load_characters_from_db() -> None:
+    """Populate chat_session['characters'] from SQLite at startup."""
+    for row in storage.load_characters():
+        try:
+            chat_session["characters"][row["name"]] = CharacterState(
+                name=row["name"], description=row["description"],
+                personality_tags=row["personality_tags"], visual_style=row["visual_style"],
+                image_dir=row["image_dir"] or None, portrait_url=row.get("portrait_url"),
+                voice=row.get("voice"), mood=row.get("mood", "neutral"),
+                affinity=row.get("affinity", 0.5), mood_intensity=row.get("mood_intensity", 0.5),
+            )
+        except Exception as e:
+            logger.error("Failed to load character %s: %s", row.get("name"), e)
+    logger.info("📂 Loaded %d character(s) from storage", len(chat_session["characters"]))
 
 # ---------------------------------------------------------------------------
 # ChromaDB Memory
@@ -370,6 +432,9 @@ def generate_response(character_name: str, user_message: str) -> CharacterRespon
         "content": f"{character_name}: {cleaned_text}"
     })
 
+    # Persist transcript + evolved emotion
+    persist_exchange(character, user_message, cleaned_text, image_urls)
+
     return CharacterResponse(
         character=character_name,
         text=cleaned_text,
@@ -418,6 +483,7 @@ async def stream_response(character_name: str, user_message: str) -> AsyncGenera
         "role": "assistant",
         "content": f"{character_name}: {cleaned_text}"
     })
+    persist_exchange(character, user_message, cleaned_text, image_urls)
 
     # Send image URLs and emotion state as final events
     for url in image_urls:
@@ -496,6 +562,8 @@ def print_network_banner() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs("static", exist_ok=True)
+    storage.init_db()
+    load_characters_from_db()
     logger.info("✅ Character AI v2 started")
     print_network_banner()
     yield
@@ -525,12 +593,17 @@ async def add_character(payload: CharacterPayload):
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
-    chat_session["characters"][name] = CharacterState(
+    if name in chat_session["characters"]:
+        raise HTTPException(status_code=409, detail="A character with that name already exists")
+    char = CharacterState(
         name=name,
         description=payload.description,
         personality_tags=payload.personality_tags,
         visual_style=payload.visual_style,
+        voice=payload.voice,
     )
+    chat_session["characters"][name] = char
+    char.persist()
     logger.info("✅ Character added: %s", name)
     return {"status": "ok", "character": name}
 
@@ -542,16 +615,116 @@ async def list_characters():
                 "name": name,
                 "emotion": state.emotion.to_dict(),
                 "personality_tags": state.personality_tags,
+                "description": state.description,
+                "visual_style": state.visual_style,
+                "portrait_url": state.portrait_url,
+                "voice": state.voice,
             }
             for name, state in chat_session["characters"].items()
         ]
     }
 
+@app.get("/characters/{name}/messages")
+async def get_character_messages(name: str):
+    """Stored transcript for replaying a conversation after reload/restart."""
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return {"character": name, "messages": storage.get_messages(name)}
+
+@app.post("/characters/{name}/portrait")
+async def generate_portrait(name: str):
+    """Generate (or regenerate) an SD portrait and use it as the character's avatar."""
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
+    raw = (
+        f"portrait of {character.name}, {character.description}, "
+        f"head and shoulders, looking at viewer, detailed face, soft studio lighting, "
+        f"neutral background"
+    )
+    url = generate_image(raw, character)
+    if not url:
+        raise HTTPException(status_code=502, detail="Portrait generation failed (is SD Forge running?)")
+    character.portrait_url = url
+    storage.set_portrait(name, url)
+    return {"status": "ok", "url": url}
+
+@app.get("/characters/{name}/gallery")
+async def get_gallery(name: str):
+    """List every image generated for this character (newest first)."""
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
+    folder = os.path.join("static", character.image_dir)
+    items = []
+    if os.path.isdir(folder):
+        for fn in os.listdir(folder):
+            if fn.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                fp = os.path.join(folder, fn)
+                items.append({
+                    "url": f"/static/{character.image_dir}/{fn}",
+                    "filename": fn,
+                    "created": os.path.getmtime(fp),
+                })
+    items.sort(key=lambda x: x["created"], reverse=True)
+    return {"character": name, "images": items}
+
+@app.put("/characters/{name}")
+async def update_character(name: str, payload: CharacterUpdate):
+    """Edit a character's description / tags / visual style / voice (name is immutable
+    so its image folder and memory collection stay stable)."""
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
+    fields = {}
+    if payload.description is not None:
+        character.description = payload.description; fields["description"] = payload.description
+    if payload.personality_tags is not None:
+        character.personality_tags = payload.personality_tags; fields["personality_tags"] = payload.personality_tags
+    if payload.visual_style is not None:
+        character.visual_style = payload.visual_style; fields["visual_style"] = payload.visual_style
+    if payload.voice is not None:
+        character.voice = payload.voice; fields["voice"] = payload.voice
+    if fields:
+        storage.update_fields(name, **fields)
+    return {"status": "ok"}
+
+@app.post("/characters/{name}/duplicate")
+async def duplicate_character(name: str):
+    """Create an independent copy with a fresh image folder + memory."""
+    if name not in chat_session["characters"]:
+        raise HTTPException(status_code=404, detail="Character not found")
+    src = chat_session["characters"][name]
+    new_name = f"{name} copy"
+    i = 2
+    while new_name in chat_session["characters"]:
+        new_name = f"{name} copy {i}"; i += 1
+    clone = CharacterState(
+        name=new_name, description=src.description,
+        personality_tags=list(src.personality_tags), visual_style=src.visual_style,
+        voice=src.voice,
+    )
+    chat_session["characters"][new_name] = clone
+    clone.persist()
+    return {"status": "ok", "character": new_name}
+
 @app.delete("/characters/{name}")
 async def remove_character(name: str):
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
+    character = chat_session["characters"][name]
     del chat_session["characters"][name]
+    # Purge persistence, semantic memory, and the image folder.
+    storage.delete_character(name)
+    try:
+        chroma_client.delete_collection(character.memory_collection_name)
+    except Exception:
+        pass
+    try:
+        import shutil
+        shutil.rmtree(os.path.join("static", character.image_dir), ignore_errors=True)
+    except Exception:
+        pass
     return {"status": "ok"}
 
 @app.post("/chat", response_model=CharacterResponse)
@@ -612,9 +785,13 @@ async def clear_memories(name: str):
 
 @app.post("/reset")
 async def reset_session():
+    """Clear all conversation transcripts and reset every character's emotion to
+    neutral, but KEEP the characters themselves (they now persist on disk)."""
     chat_session["history"].clear()
-    chat_session["characters"].clear()
-    logger.info("🔄 Session reset")
+    for character in chat_session["characters"].values():
+        character.emotion = EmotionState()
+    storage.reset_all()
+    logger.info("🔄 Session reset (transcripts cleared, characters kept)")
     return {"status": "ok"}
 
 @app.get("/health")
@@ -631,7 +808,46 @@ async def health():
         ollama_ok = True
     except Exception:
         pass
-    return {"ollama": ollama_ok, "stable_diffusion": sd_ok}
+    return {
+        "ollama": ollama_ok,
+        "stable_diffusion": sd_ok,
+        "tts": voice.tts_available(),
+        "stt": voice.stt_available(),
+    }
+
+# ---------------------------------------------------------------------------
+# Voice (fully offline: Piper TTS + faster-whisper STT)
+# ---------------------------------------------------------------------------
+@app.get("/voices")
+async def get_voices():
+    return {"voices": voice.list_voices()}
+
+@app.post("/tts")
+async def text_to_speech(payload: TTSPayload):
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    voice_id = payload.voice
+    if not voice_id and payload.character_name in chat_session["characters"]:
+        voice_id = chat_session["characters"][payload.character_name].voice
+    try:
+        wav = voice.tts_synth(text, voice_id)
+    except Exception as e:
+        logger.error("TTS failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"TTS unavailable: {e}")
+    return Response(content=wav, media_type="audio/wav")
+
+@app.post("/stt")
+async def speech_to_text(audio: UploadFile = File(...)):
+    data = await audio.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty audio")
+    try:
+        text = voice.stt_transcribe(data)
+    except Exception as e:
+        logger.error("STT failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"STT unavailable: {e}")
+    return {"text": text}
 
 # ---------------------------------------------------------------------------
 # Entry point

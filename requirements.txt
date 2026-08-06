@@ -7,3 +7,7 @@ chromadb==0.5.5
 sentence-transformers==3.0.1
 python-multipart==0.0.9
 qrcode==7.4.2
+
+# Voice (optional, fully offline). The app runs without these — voice UI just hides.
+piper-tts==1.2.0
+faster-whisper==1.0.3

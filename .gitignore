@@ -10,8 +10,14 @@ __pycache__/
 # Environment variables
 .env
 
-# Database (ChromaDB semantic memory)
+# Database (ChromaDB semantic memory + SQLite persistence)
 chroma_db/
+persona.db
+persona.db-journal
+
+# Voice models / caches (Piper voices, faster-whisper cache)
+voices/
+.cache/
 
 # Generated images
 static/

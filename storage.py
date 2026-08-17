@@ -170,12 +170,19 @@ def add_message(character_name: str, role: str, content: str,
         _conn.commit()
 
 
-def get_messages(character_name: str) -> list[dict]:
+def get_messages(character_name: str, kinds: tuple[str, ...] = ("solo",)) -> list[dict]:
+    """Transcript rows for a character, restricted to the given `kind`s.
+
+    Defaults to solo only: group-chat turns are shared chatter that would
+    otherwise replay inside a one-on-one conversation.
+    """
+    placeholders = ",".join("?" * len(kinds))
     with _lock:
         rows = _conn.execute(
-            "SELECT role, content, image_url, kind, created_at "
-            "FROM messages WHERE character_name=? ORDER BY id",
-            (character_name,),
+            f"SELECT role, content, image_url, kind, created_at "
+            f"FROM messages WHERE character_name=? AND kind IN ({placeholders}) "
+            f"ORDER BY id",
+            (character_name, *kinds),
         ).fetchall()
     return [dict(r) for r in rows]
 

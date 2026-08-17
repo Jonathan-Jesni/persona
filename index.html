@@ -765,7 +765,10 @@ function groupSend(raw, displayUser){
 // Stream one character's reply into the given message object; resolves when done.
 function streamOne(name, raw, aiMsg){
   return new Promise(resolve => {
-    const url = `/chat/stream?character_name=${encodeURIComponent(name)}&user_message=${encodeURIComponent(raw)}`;
+    // Pass the participant list so the backend threads this reply through the
+    // shared group transcript — that's how characters hear each other.
+    const url = `/chat/stream?character_name=${encodeURIComponent(name)}&user_message=${encodeURIComponent(raw)}`
+      + `&group=${encodeURIComponent(state.group.join(','))}`;
     const es = new EventSource(url);
     const finish = () => { es.close(); renderFeed(); resolve(); };
     es.onmessage = (ev) => {

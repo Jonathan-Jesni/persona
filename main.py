@@ -19,6 +19,7 @@ import re
 import json
 import logging
 import asyncio
+import threading
 from pathlib import Path
 from typing import Optional, AsyncGenerator
 from contextlib import asynccontextmanager
@@ -53,10 +54,23 @@ MAX_HISTORY = int(os.getenv("MAX_HISTORY", "30"))              # Rolling context
 # ---------------------------------------------------------------------------
 # Global State
 # ---------------------------------------------------------------------------
+def _fresh_group() -> dict:
+    """Empty group-chat state: participant key, transcript, and round tracking.
+
+    `turn`/`answered` identify the round currently being answered so the user's
+    message is recorded once no matter how many characters reply to it.
+    """
+    return {"key": None, "history": [], "turn": None, "answered": set()}
+
 chat_session: dict = {
-    "history": [],       # Rolling conversation history (all characters)
-    "characters": {},    # name -> CharacterState
+    "characters": {},    # name -> CharacterState (each owns its own history)
+    # Group chat gets its own shared transcript so participants can hear each
+    # other without that chatter leaking into anyone's one-on-one history.
+    # Reset whenever the participant list changes.
+    "group": _fresh_group(),
 }
+
+_group_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Pydantic Models
@@ -188,6 +202,8 @@ class CharacterState:
         self.memory_collection_name = f"char_{re.sub(r'[^a-z0-9]', '_', name.lower())}"
         # Reserve a NEW folder only when creating; loading reuses the stored one.
         self.image_dir = image_dir if image_dir is not None else reserve_char_dir(name)
+        # This character's own rolling conversation window — never shared.
+        self.history: list[dict] = []
 
     def persist(self) -> None:
         """Write this character's full state to SQLite."""
@@ -198,6 +214,81 @@ class CharacterState:
             affinity=self.emotion.affinity, mood_intensity=self.emotion.mood_intensity,
             portrait_url=self.portrait_url, voice=self.voice,
         )
+
+
+# ---------------------------------------------------------------------------
+# Conversation history
+# ---------------------------------------------------------------------------
+def parse_group(group: Optional[str]) -> Optional[list[str]]:
+    """`?group=Ava,Ruo,Kit` → ['Ava', 'Ruo', 'Kit']; None when absent or empty."""
+    if not group:
+        return None
+    names = [n.strip() for n in group.split(",") if n.strip()]
+    return names or None
+
+
+def group_buffer(names: list[str]) -> list[dict]:
+    """The shared transcript for a group chat, keyed by its participants.
+
+    Changing who is in the group starts a fresh conversation, which matches the
+    frontend — picking a new group clears the feed.
+    """
+    key = tuple(sorted(names))
+    with _group_lock:
+        group = chat_session["group"]
+        if group["key"] != key:
+            group.update(_fresh_group())
+            group["key"] = key
+        return group["history"]
+
+
+def _opens_group_round(character_name: str, user_message: str) -> bool:
+    """Whether this character is the first to answer the current group round.
+
+    Everyone answers the same user message, so only the opener records it. Keying
+    on who has already replied — rather than on position in the participant list
+    — keeps it correct when a character errors out or replies out of order, and
+    still starts a new round when the user repeats themselves verbatim.
+    """
+    with _group_lock:
+        group = chat_session["group"]
+        if group["turn"] != user_message or character_name in group["answered"]:
+            group["turn"] = user_message
+            group["answered"] = {character_name}
+            return True
+        group["answered"].add(character_name)
+        return False
+
+
+def select_history(character: "CharacterState",
+                   group_names: Optional[list[str]]) -> list[dict]:
+    """The message list this exchange belongs to: the group's, or the character's own."""
+    return group_buffer(group_names) if group_names else character.history
+
+
+def strip_self_prefix(name: str, text: str) -> str:
+    """Drop a leading 'Name:' the model copies from the group transcript.
+
+    Group replies are stored name-prefixed so participants can tell each other
+    apart; models imitate that and prefix themselves, which would otherwise
+    compound into 'Bob: Bob: …' turn after turn.
+    """
+    return re.sub(rf"^\s*{re.escape(name)}\s*:\s*", "", text, count=1)
+
+
+def append_turn(history: list[dict], user_message: str, character: "CharacterState",
+                ai_text: str, group_names: Optional[list[str]]) -> None:
+    """Record a completed user→AI exchange in the given history.
+
+    In a group the reply is prefixed with the speaker's name so the next
+    character can tell who said what; solo chats skip the prefix, which the model
+    would otherwise start imitating in its own replies. Every participant answers
+    the same user turn, so only the character that opens the round records it.
+    """
+    if not group_names or _opens_group_round(character.name, user_message):
+        history.append({"role": "user", "content": user_message})
+    content = f"{character.name}: {ai_text}" if group_names else ai_text
+    history.append({"role": "assistant", "content": content})
 
 
 def persist_exchange(character: "CharacterState", user_message: str,
@@ -270,15 +361,29 @@ def recall_memories(character: CharacterState, query: str, top_k: int = MEMORY_T
 # ---------------------------------------------------------------------------
 # System Prompt Builder
 # ---------------------------------------------------------------------------
-def build_system_prompt(character: CharacterState, memory_context: str) -> str:
+def build_system_prompt(character: CharacterState, memory_context: str,
+                        group_names: Optional[list[str]] = None) -> str:
     tags = ", ".join(character.personality_tags) if character.personality_tags else "natural"
     emotion_snippet = character.emotion.to_prompt_snippet()
+
+    group_snippet = ""
+    if group_names:
+        others = [n for n in group_names if n != character.name]
+        if others:
+            group_snippet = (
+                f"[GROUP CHAT] {', '.join(others)} are in this conversation too. "
+                f"Their replies are prefixed with their name — react to what they said "
+                f"as well as to the user. Speak only as yourself; never write another "
+                f"character's lines or prefix your own reply with your name."
+            )
 
     prompt = f"""You are {character.name}. {character.description}
 
 PERSONALITY: {tags}
 
 {emotion_snippet}
+
+{group_snippet}
 
 {memory_context}
 
@@ -292,6 +397,16 @@ RULES:
 5. Let your current mood and affinity toward the user subtly shape your tone.
 """
     return prompt
+
+
+def build_messages(character: CharacterState, user_message: str, history: list[dict],
+                   group_names: Optional[list[str]] = None) -> list[dict]:
+    """System prompt (with memories + emotion) + rolling window + the new user turn."""
+    memory_context = recall_memories(character, user_message)
+    system_prompt = build_system_prompt(character, memory_context, group_names)
+    return [{"role": "system", "content": system_prompt}] + history[-MAX_HISTORY:] + [
+        {"role": "user", "content": user_message}
+    ]
 
 # ---------------------------------------------------------------------------
 # Image Pipeline (Two-Pass)
@@ -386,23 +501,16 @@ def process_image_triggers(text: str, character: CharacterState) -> tuple[str, l
 # ---------------------------------------------------------------------------
 # Core Generation
 # ---------------------------------------------------------------------------
-def generate_response(character_name: str, user_message: str) -> CharacterResponse:
+def generate_response(character_name: str, user_message: str,
+                      group_names: Optional[list[str]] = None) -> CharacterResponse:
     if character_name not in chat_session["characters"]:
         raise ValueError(f"Character '{character_name}' not found.")
 
     character: CharacterState = chat_session["characters"][character_name]
 
-    # Pull relevant memories
-    memory_context = recall_memories(character, user_message)
-
-    # Build system prompt with emotion + memory
-    system_prompt = build_system_prompt(character, memory_context)
-
-    # Rolling context window
-    history_window = chat_session["history"][-MAX_HISTORY:]
-    messages = [{"role": "system", "content": system_prompt}] + history_window + [
-        {"role": "user", "content": user_message}
-    ]
+    # This character's own history, or the group's shared one
+    history = select_history(character, group_names)
+    messages = build_messages(character, user_message, history, group_names)
 
     try:
         result = ollama.chat(
@@ -418,6 +526,8 @@ def generate_response(character_name: str, user_message: str) -> CharacterRespon
 
     # Process image triggers
     cleaned_text, image_urls = process_image_triggers(raw_text, character)
+    if group_names:
+        cleaned_text = strip_self_prefix(character_name, cleaned_text)
 
     # Update emotion state
     character.emotion.update(user_message, cleaned_text)
@@ -425,15 +535,12 @@ def generate_response(character_name: str, user_message: str) -> CharacterRespon
     # Store memory
     store_memory(character, user_message, cleaned_text)
 
-    # Append to shared history
-    chat_session["history"].append({"role": "user", "content": user_message})
-    chat_session["history"].append({
-        "role": "assistant",
-        "content": f"{character_name}: {cleaned_text}"
-    })
+    # Append to whichever history this exchange belongs to
+    append_turn(history, user_message, character, cleaned_text, group_names)
 
     # Persist transcript + evolved emotion
-    persist_exchange(character, user_message, cleaned_text, image_urls)
+    persist_exchange(character, user_message, cleaned_text, image_urls,
+                     kind="group" if group_names else "solo")
 
     return CharacterResponse(
         character=character_name,
@@ -442,19 +549,16 @@ def generate_response(character_name: str, user_message: str) -> CharacterRespon
         emotion=character.emotion.to_dict()
     )
 
-async def stream_response(character_name: str, user_message: str) -> AsyncGenerator[str, None]:
+async def stream_response(character_name: str, user_message: str,
+                          group_names: Optional[list[str]] = None) -> AsyncGenerator[str, None]:
     """Streaming version — yields SSE events for real-time frontend display."""
     if character_name not in chat_session["characters"]:
         yield f"data: {json.dumps({'error': 'Character not found'})}\n\n"
         return
 
     character: CharacterState = chat_session["characters"][character_name]
-    memory_context = recall_memories(character, user_message)
-    system_prompt = build_system_prompt(character, memory_context)
-    history_window = chat_session["history"][-MAX_HISTORY:]
-    messages = [{"role": "system", "content": system_prompt}] + history_window + [
-        {"role": "user", "content": user_message}
-    ]
+    history = select_history(character, group_names)
+    messages = build_messages(character, user_message, history, group_names)
 
     full_text = ""
     try:
@@ -476,14 +580,13 @@ async def stream_response(character_name: str, user_message: str) -> AsyncGenera
 
     # Post-stream: process images, update emotion, store memory
     cleaned_text, image_urls = process_image_triggers(full_text, character)
+    if group_names:
+        cleaned_text = strip_self_prefix(character_name, cleaned_text)
     character.emotion.update(user_message, cleaned_text)
     store_memory(character, user_message, cleaned_text)
-    chat_session["history"].append({"role": "user", "content": user_message})
-    chat_session["history"].append({
-        "role": "assistant",
-        "content": f"{character_name}: {cleaned_text}"
-    })
-    persist_exchange(character, user_message, cleaned_text, image_urls)
+    append_turn(history, user_message, character, cleaned_text, group_names)
+    persist_exchange(character, user_message, cleaned_text, image_urls,
+                     kind="group" if group_names else "solo")
 
     # Send image URLs and emotion state as final events
     for url in image_urls:
@@ -739,12 +842,17 @@ async def chat(payload: ChatPayload):
         raise HTTPException(status_code=502, detail=str(e))
 
 @app.get("/chat/stream")
-async def chat_stream(character_name: str, user_message: str):
-    """SSE streaming endpoint. Connect with EventSource."""
+async def chat_stream(character_name: str, user_message: str, group: Optional[str] = None):
+    """SSE streaming endpoint. Connect with EventSource.
+
+    `group` is an optional comma-separated participant list. When present the
+    exchange is read from and written to the shared group transcript instead of
+    the character's own, so participants hear each other.
+    """
     if character_name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
     return StreamingResponse(
-        stream_response(character_name, user_message),
+        stream_response(character_name, user_message, parse_group(group)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
@@ -752,12 +860,11 @@ async def chat_stream(character_name: str, user_message: str):
 @app.post("/chat/group")
 async def group_chat(payload: GroupChatPayload):
     """Have multiple characters respond to the same message in sequence."""
+    names = [n for n in payload.character_names if n in chat_session["characters"]]
     responses = []
-    for name in payload.character_names:
-        if name not in chat_session["characters"]:
-            continue
+    for name in names:
         try:
-            resp = generate_response(name, payload.user_message)
+            resp = generate_response(name, payload.user_message, group_names=names)
             responses.append(resp)
         except Exception as e:
             logger.error("Group chat error for %s: %s", name, e)
@@ -787,9 +894,11 @@ async def clear_memories(name: str):
 async def reset_session():
     """Clear all conversation transcripts and reset every character's emotion to
     neutral, but KEEP the characters themselves (they now persist on disk)."""
-    chat_session["history"].clear()
     for character in chat_session["characters"].values():
+        character.history.clear()
         character.emotion = EmotionState()
+    with _group_lock:
+        chat_session["group"] = _fresh_group()
     storage.reset_all()
     logger.info("🔄 Session reset (transcripts cleared, characters kept)")
     return {"status": "ok"}

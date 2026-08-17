@@ -170,21 +170,28 @@ def add_message(character_name: str, role: str, content: str,
         _conn.commit()
 
 
-def get_messages(character_name: str, kinds: tuple[str, ...] = ("solo",)) -> list[dict]:
+def get_messages(character_name: str, kinds: tuple[str, ...] = ("solo",),
+                 limit: int | None = None) -> list[dict]:
     """Transcript rows for a character, restricted to the given `kind`s.
 
     Defaults to solo only: group-chat turns are shared chatter that would
-    otherwise replay inside a one-on-one conversation.
+    otherwise replay inside a one-on-one conversation. With `limit`, returns
+    only the most recent `limit` rows (still oldest-first) — for rehydrating a
+    bounded context window rather than the full transcript.
     """
     placeholders = ",".join("?" * len(kinds))
+    query = (
+        f"SELECT id, role, content, image_url, kind, created_at "
+        f"FROM messages WHERE character_name=? AND kind IN ({placeholders}) "
+        f"ORDER BY id"
+    )
+    params: tuple = (character_name, *kinds)
+    if limit is not None:
+        query = f"SELECT * FROM ({query} DESC LIMIT ?) ORDER BY id"
+        params = (*params, limit)
     with _lock:
-        rows = _conn.execute(
-            f"SELECT role, content, image_url, kind, created_at "
-            f"FROM messages WHERE character_name=? AND kind IN ({placeholders}) "
-            f"ORDER BY id",
-            (character_name, *kinds),
-        ).fetchall()
-    return [dict(r) for r in rows]
+        rows = _conn.execute(query, params).fetchall()
+    return [{k: v for k, v in dict(r).items() if k != "id"} for r in rows]
 
 
 def clear_messages(character_name: str) -> None:

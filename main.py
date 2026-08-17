@@ -266,6 +266,20 @@ def select_history(character: "CharacterState",
     return group_buffer(group_names) if group_names else character.history
 
 
+_GENERATED_IMAGE_PATTERN = re.compile(r"\[GENERATED_IMAGE:[^\]]*\]")
+
+def history_text(text: str) -> str:
+    """Strip pipeline bookkeeping before text re-enters the model's context.
+
+    process_image_triggers() rewrites an [IMAGE: ...] trigger into a
+    [GENERATED_IMAGE:/static/...] marker for the frontend to render. Feeding that
+    back to the model teaches it by example to emit a marker the image pipeline
+    owns — and to invent /static/ URLs for images that were never generated.
+    """
+    stripped = _GENERATED_IMAGE_PATTERN.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", stripped).strip()
+
+
 def strip_self_prefix(name: str, text: str) -> str:
     """Drop a leading 'Name:' the model copies from the group transcript.
 
@@ -287,8 +301,26 @@ def append_turn(history: list[dict], user_message: str, character: "CharacterSta
     """
     if not group_names or _opens_group_round(character.name, user_message):
         history.append({"role": "user", "content": user_message})
-    content = f"{character.name}: {ai_text}" if group_names else ai_text
+    reply = history_text(ai_text)
+    content = f"{character.name}: {reply}" if group_names else reply
     history.append({"role": "assistant", "content": content})
+
+
+def hydrate_history(character: "CharacterState") -> int:
+    """Refill a character's context window from its stored transcript.
+
+    Without this the frontend replays the saved conversation on startup while the
+    model begins cold — the character 'forgets' an exchange the user can still
+    see on screen. Solo turns only; group chatter belongs to the group buffer.
+    """
+    for row in storage.get_messages(character.name, kinds=("solo",), limit=MAX_HISTORY):
+        content = history_text(row["content"])
+        if not content and row.get("image_url"):
+            content = "*shared an image*"   # keep the turn, it wasn't empty
+        if content:
+            role = "assistant" if row["role"] == "ai" else "user"
+            character.history.append({"role": role, "content": content})
+    return len(character.history)
 
 
 def persist_exchange(character: "CharacterState", user_message: str,
@@ -305,19 +337,24 @@ def persist_exchange(character: "CharacterState", user_message: str,
 
 
 def load_characters_from_db() -> None:
-    """Populate chat_session['characters'] from SQLite at startup."""
+    """Populate chat_session['characters'] from SQLite at startup, each with its
+    recent conversation restored so the model picks up where it left off."""
+    restored = 0
     for row in storage.load_characters():
         try:
-            chat_session["characters"][row["name"]] = CharacterState(
+            character = CharacterState(
                 name=row["name"], description=row["description"],
                 personality_tags=row["personality_tags"], visual_style=row["visual_style"],
                 image_dir=row["image_dir"] or None, portrait_url=row.get("portrait_url"),
                 voice=row.get("voice"), mood=row.get("mood", "neutral"),
                 affinity=row.get("affinity", 0.5), mood_intensity=row.get("mood_intensity", 0.5),
             )
+            chat_session["characters"][row["name"]] = character
+            restored += hydrate_history(character)
         except Exception as e:
             logger.error("Failed to load character %s: %s", row.get("name"), e)
-    logger.info("📂 Loaded %d character(s) from storage", len(chat_session["characters"]))
+    logger.info("📂 Loaded %d character(s) from storage, %d message(s) of context restored",
+                len(chat_session["characters"]), restored)
 
 # ---------------------------------------------------------------------------
 # ChromaDB Memory

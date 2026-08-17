@@ -267,17 +267,22 @@ def select_history(character: "CharacterState",
     return group_buffer(group_names) if group_names else character.history
 
 
-_GENERATED_IMAGE_PATTERN = re.compile(r"\[GENERATED_IMAGE:[^\]]*\]")
+_BOOKKEEPING_PATTERN = re.compile(
+    r"\[GENERATED_IMAGE:[^\]]*\]"          # a rendered image, for the frontend
+    r"|\*\[image unavailable\]\*"          # the same trigger after SD failed
+)
 
 def history_text(text: str) -> str:
     """Strip pipeline bookkeeping before text re-enters the model's context.
 
-    process_image_triggers() rewrites an [IMAGE: ...] trigger into a
-    [GENERATED_IMAGE:/static/...] marker for the frontend to render. Feeding that
-    back to the model teaches it by example to emit a marker the image pipeline
-    owns — and to invent /static/ URLs for images that were never generated.
+    process_image_triggers() rewrites an [IMAGE: ...] trigger into either a
+    [GENERATED_IMAGE:/static/...] marker or an '*[image unavailable]*' notice.
+    Both are the pipeline talking to the UI, not the character speaking. Fed back
+    as an assistant turn the model imitates them — inventing /static/ URLs for
+    images that never existed, or narrating its own failures — and with Stable
+    Diffusion optional here, the failure notice is the common case.
     """
-    stripped = _GENERATED_IMAGE_PATTERN.sub("", text or "")
+    stripped = _BOOKKEEPING_PATTERN.sub("", text or "")
     return re.sub(r"[ \t]{2,}", " ", stripped).strip()
 
 
@@ -313,11 +318,14 @@ def hydrate_history(character: "CharacterState") -> int:
     Without this the frontend replays the saved conversation on startup while the
     model begins cold — the character 'forgets' an exchange the user can still
     see on screen. Solo turns only; group chatter belongs to the group buffer.
+
+    A reply that was nothing but an image strips to empty and is dropped rather
+    than stood in for: anything placed in an assistant turn is something the
+    model will imitate, and a stand-in phrase comes back as literal text where
+    a picture belongs. Leaving two user turns adjacent is harmless by comparison.
     """
     for row in storage.get_messages(character.name, kinds=("solo",), limit=MAX_HISTORY):
         content = history_text(row["content"])
-        if not content and row.get("image_url"):
-            content = "*shared an image*"   # keep the turn, it wasn't empty
         if content:
             role = "assistant" if row["role"] == "ai" else "user"
             character.history.append({"role": role, "content": content})
@@ -370,9 +378,15 @@ def get_or_create_collection(collection_name: str):
     )
 
 def store_memory(character: CharacterState, user_msg: str, ai_msg: str):
-    """Store a user-AI exchange as a memory vector."""
+    """Store a user-AI exchange as a memory vector.
+
+    Cleaned the same way as the rolling history: recalled memories are pasted
+    into the system prompt verbatim, so a stored [GENERATED_IMAGE:...] marker
+    comes back as an instruction-by-example to emit image URLs — and unlike the
+    history window, memories never age out.
+    """
     collection = get_or_create_collection(character.memory_collection_name)
-    doc = f"User: {user_msg}\n{character.name}: {ai_msg}"
+    doc = f"User: {user_msg}\n{character.name}: {history_text(ai_msg)}"
     embedding = embedder.encode(doc).tolist()
     collection.add(
         documents=[doc],

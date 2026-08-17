@@ -18,7 +18,6 @@ import requests
 import re
 import json
 import logging
-import asyncio
 import threading
 from pathlib import Path
 from typing import Optional, AsyncGenerator
@@ -32,8 +31,10 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from ollama import AsyncClient
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
+from starlette.concurrency import run_in_threadpool
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -595,35 +596,38 @@ async def stream_response(character_name: str, user_message: str,
 
     character: CharacterState = chat_session["characters"][character_name]
     history = select_history(character, group_names)
-    messages = build_messages(character, user_message, history, group_names)
+    # Embedding the query for memory recall is CPU-bound — keep it off the loop.
+    messages = await run_in_threadpool(
+        build_messages, character, user_message, history, group_names)
 
     full_text = ""
     try:
-        stream = ollama.chat(
+        stream = await AsyncClient().chat(
             model=OLLAMA_MODEL,
             messages=messages,
             stream=True,
             options={"temperature": 0.85, "top_p": 0.9, "num_predict": 512}
         )
-        for chunk in stream:
+        async for chunk in stream:
             token = chunk["message"]["content"]
             full_text += token
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-            await asyncio.sleep(0)  # yield control
 
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
         return
 
-    # Post-stream: process images, update emotion, store memory
-    cleaned_text, image_urls = process_image_triggers(full_text, character)
+    # Post-stream: process images, update emotion, store memory. Image generation
+    # alone can take minutes, so none of this may run on the event loop.
+    cleaned_text, image_urls = await run_in_threadpool(
+        process_image_triggers, full_text, character)
     if group_names:
         cleaned_text = strip_self_prefix(character_name, cleaned_text)
     character.emotion.update(user_message, cleaned_text)
-    store_memory(character, user_message, cleaned_text)
+    await run_in_threadpool(store_memory, character, user_message, cleaned_text)
     append_turn(history, user_message, character, cleaned_text, group_names)
-    persist_exchange(character, user_message, cleaned_text, image_urls,
-                     kind="group" if group_names else "solo")
+    await run_in_threadpool(persist_exchange, character, user_message, cleaned_text,
+                            image_urls, "group" if group_names else "solo")
 
     # Send image URLs and emotion state as final events
     for url in image_urls:
@@ -772,7 +776,7 @@ async def get_character_messages(name: str):
     return {"character": name, "messages": storage.get_messages(name)}
 
 @app.post("/characters/{name}/portrait")
-async def generate_portrait(name: str):
+def generate_portrait(name: str):
     """Generate (or regenerate) an SD portrait and use it as the character's avatar."""
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -790,7 +794,7 @@ async def generate_portrait(name: str):
     return {"status": "ok", "url": url}
 
 @app.get("/characters/{name}/gallery")
-async def get_gallery(name: str):
+def get_gallery(name: str):
     """List every image generated for this character (newest first)."""
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -849,7 +853,9 @@ async def duplicate_character(name: str):
     return {"status": "ok", "character": new_name}
 
 @app.delete("/characters/{name}")
-async def remove_character(name: str):
+def remove_character(name: str):
+    # Drops a Chroma collection and rmtree's an image folder that may hold
+    # hundreds of PNGs — both blocking.
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
     character = chat_session["characters"][name]
@@ -868,7 +874,9 @@ async def remove_character(name: str):
     return {"status": "ok"}
 
 @app.post("/chat", response_model=CharacterResponse)
-async def chat(payload: ChatPayload):
+def chat(payload: ChatPayload):
+    # Plain `def` on purpose: this path blocks on Ollama and Stable Diffusion, so
+    # FastAPI must run it in the threadpool rather than on the event loop.
     if not payload.character_name.strip():
         raise HTTPException(status_code=400, detail="character_name required")
     if payload.character_name not in chat_session["characters"]:
@@ -895,7 +903,7 @@ async def chat_stream(character_name: str, user_message: str, group: Optional[st
     )
 
 @app.post("/chat/group")
-async def group_chat(payload: GroupChatPayload):
+def group_chat(payload: GroupChatPayload):
     """Have multiple characters respond to the same message in sequence."""
     names = [n for n in payload.character_names if n in chat_session["characters"]]
     responses = []
@@ -908,7 +916,9 @@ async def group_chat(payload: GroupChatPayload):
     return {"responses": responses}
 
 @app.get("/characters/{name}/memories")
-async def get_memories(name: str, query: str = "recent conversation"):
+def get_memories(name: str, query: str = "recent conversation"):
+    # recall_memories() embeds the query — the same CPU-bound work the chat paths
+    # push to the threadpool.
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
     character = chat_session["characters"][name]
@@ -916,7 +926,7 @@ async def get_memories(name: str, query: str = "recent conversation"):
     return {"character": name, "memories": memories}
 
 @app.delete("/characters/{name}/memories")
-async def clear_memories(name: str):
+def clear_memories(name: str):
     if name not in chat_session["characters"]:
         raise HTTPException(status_code=404, detail="Character not found")
     character = chat_session["characters"][name]
@@ -941,7 +951,9 @@ async def reset_session():
     return {"status": "ok"}
 
 @app.get("/health")
-async def health():
+def health():
+    # Probes two HTTP services with blocking `requests` calls — threadpool it, or
+    # a health check would stall every other request for up to 3 seconds.
     sd_ok = False
     ollama_ok = False
     try:
@@ -969,7 +981,7 @@ async def get_voices():
     return {"voices": voice.list_voices()}
 
 @app.post("/tts")
-async def text_to_speech(payload: TTSPayload):
+def text_to_speech(payload: TTSPayload):
     text = payload.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
@@ -985,11 +997,12 @@ async def text_to_speech(payload: TTSPayload):
 
 @app.post("/stt")
 async def speech_to_text(audio: UploadFile = File(...)):
+    # Stays async for `await audio.read()`; only the transcription blocks.
     data = await audio.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty audio")
     try:
-        text = voice.stt_transcribe(data)
+        text = await run_in_threadpool(voice.stt_transcribe, data)
     except Exception as e:
         logger.error("STT failed: %s", e)
         raise HTTPException(status_code=503, detail=f"STT unavailable: {e}")
